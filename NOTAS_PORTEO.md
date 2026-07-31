@@ -197,11 +197,28 @@ CRAFTERS, con SKU tipo `CR016000000CDBAR40`. La sección Mayoristas no va a
 funcionar hasta que exista la tabla equivalente de Suprabond, o hasta que se
 cambie la regla de familia por otra que sirva para los SKU de Contabilium.
 
-### 3. Assets de marca
+### 3. Assets de marca — HECHO
 
-Faltan `_assets/logo_suprabond.png` (horizontal, ~560×138) e
-`_assets/icono_suprabond.png` (cuadrado, 256×256, para el favicon). La app
-degrada sola: si no están, muestra el texto "SUPRABOND" y un emoji de changuito.
+Generados desde el logo institucional de GSU, el mismo que usan Contabilidad y
+Gestión de Vendedores (`assets/logo.png`, 2000×730 RGBA, idéntico en los tres
+proyectos).
+
+- `logo_suprabond.png` — 560×204, recortado al contenido con 5% de margen.
+- `icono_suprabond.png` — 256×256, solo la "s" de *suprabond*.
+
+**Los dos van compuestos sobre BLANCO opaco, no sobre transparente.** El
+original es tinta negra sobre fondo transparente: en tema oscuro "suprabond"
+desaparece contra el `#0e1117` de Streamlit. Es el mismo problema que en
+CRAFTERS pero al revés — allá la tinta era clara y había que componer sobre
+negro.
+
+**Trampa del recorte del ícono:** en la columna de la "s" (x 45-278) la palabra
+*grupo* y la palabra *suprabond* **se tocan verticalmente**, así que recortar
+por posición mete la panza de la "o" de *grupo* dentro del favicon. Se separan
+por color, que sí es limpio: *grupo* es gris (luminancia ~170) y *suprabond*
+negro (~10), sin nada en el medio. El umbral está en 90.
+
+Para regenerarlos: la "s" sola mide 233×429 en el original.
 
 ### 4. Credenciales — hechas, pero falta la Google Sheet
 
