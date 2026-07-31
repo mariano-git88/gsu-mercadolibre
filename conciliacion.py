@@ -5,9 +5,10 @@ Conciliar lo que MercadoLibre factura contra lo que deberia cobrar.
     python conciliacion.py          -> ultimos periodos cerrados
     python conciliacion.py 6        -> ultimos 6 periodos
 
-ML factura entre $22M y $35M por mes a SUPRABOND. Por otro lado, cada orden
-trae el `sale_fee` que ML se cobro por esa venta. **Nadie compara las dos
-cosas.** Con esos montos, un 2% de diferencia son medio millon por mes.
+ML factura alrededor de $21.000 por mes a esta cuenta (julio 2026). Por otro
+lado, cada orden trae el `sale_fee` que ML se cobro por esa venta. **Nadie
+compara las dos cosas**, y la factura incluye conceptos que no son comision de
+venta.
 
 Que hace: por cada periodo cerrado de facturacion, suma las comisiones de las
 ordenes de esas mismas fechas y las compara contra el monto facturado.

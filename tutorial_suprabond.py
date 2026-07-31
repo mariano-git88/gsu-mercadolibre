@@ -316,11 +316,11 @@ de aplicar.
 > sin costo no se sabe si se gana o se pierde.
 
 **El escalón del cargo fijo.** MercadoLibre cobra un porcentaje más un cargo
-fijo por unidad, y ese cargo salta en escalones. El más grande está en
-**\\$33.000**: por encima el cargo fijo es cero, por debajo son \\$3.005. O sea que
-bajar de \\$34.000 a \\$32.000 cuesta mucho más que los \\$2.000 de diferencia. El
-cálculo del margen ya lo tiene en cuenta, y esas publicaciones quedan excluidas
-por defecto.
+fijo por unidad, y ese cargo salta en escalones. En Uruguay el más grande está
+en **\\$1.000**, y acá **juega a favor de bajar**: por encima el cargo fijo es
+cero pero el envío pasa a pagarlo el vendedor (~\\$160); por debajo pagás \\$40
+de cargo y el envío lo paga el comprador. O sea que bajar de \\$1.050 a \\$999 te
+deja **más** plata, no menos. El cálculo del margen ya lo tiene en cuenta.
 
 **Promociones.** MercadoLibre le ofrece a cada publicación un menú de campañas
 (relámpago, temporada, descuentos sugeridos). Cada una queda como *candidata*
@@ -487,10 +487,11 @@ con página de catálogo, la publicación que pelea la página es la misma que
 toca el cambio de precio en solo 186. En el resto, el consejo de Buy Box es
 informativo: esas se resuelven desde *Ganar la venta*, una por una.
 
-**El escalón puede ser el mayor rendimiento.** Arriba de $33.000 el cargo fijo
-de MercadoLibre es cero. Hay casos donde subir de \\$29.615 a \\$33.000 —un 11%—
-lleva el neto por unidad de **−\\$1.964 a +\\$2.824**. La columna *Cruza escalón*
-te marca esos.
+**Ojo con el escalón de \\$1.000, que en Uruguay es una trampa.** Arriba de
+\\$1.000 el cargo fijo de MercadoLibre es cero, y suena a oportunidad, pero
+desde ahí el envío lo pagás vos: ahorrás \\$40 y te cargás ~\\$160. Cruzarlo
+cuesta unos \\$154 por unidad, y para empatar habría que llegar a \\$1.178.
+La columna *Cruza escalón* te marca esos casos para que los mires dos veces.
 
 **Cómo usarla.** Poné un cambio máximo bajo (15-20%), mirá cuántos entran,
 tildá filas si querés elegir a mano, simulá y aplicá. La simulación pasa por
@@ -550,21 +551,20 @@ nada**: son todos de consulta.
 | **Salud del catálogo** | Qué publicaciones tienen datos mal cargados |
 
 **Sobre los tramos de comisión:** MercadoLibre cobra un porcentaje **más un
-cargo fijo por unidad**, y ese cargo salta en escalones — arriba de $33.000
-desaparece. Por eso hay productos donde subir el precio un 1% deja bastante
-más plata. Empezá por los que **más ganan subiendo menos**.
+cargo fijo por unidad**, y ese cargo salta en escalones. En Uruguay el que
+importa es el de **\\$1.000**, y va al revés de lo que uno esperaría: arriba de
+esa línea el cargo fijo desaparece, pero el envío pasa a pagarlo el vendedor y
+sale bastante más caro. Por eso las sugerencias que vas a ver son casi todas
+**bajas de precio** hasta \\$999 — dejás más neto y además vendés más barato.
 
-**Sobre los candidatos a Full:** esto **no te dice cuánto ahorrarías**, y es a
-propósito. MercadoLibre no publica esa cuenta, y SUPRABOND tiene 20 productos en
-Full sobre 997: son muy pocos para comparar contra los del depósito propio sin
-inventar el número. Lo que sí está medido es **cuánta plata de envío quema cada
-producto por mes**, que es lo que Full ataca.
+**Sobre los candidatos a Full:** en esta cuenta **no hay ni una publicación en
+Full**. Las 438 activas están en depósito propio, así que no hay con qué
+comparar y esta vista no te va a decir cuánto ahorrarías. Sirve como foto de
+dónde se va la plata de envío, por si algún día se evalúa entrar.
 
-Un dato para tener presente: SUPRABOND **paga envío casi solo arriba de
-$33.000**. Debajo de esa franja el envío lo paga el comprador o lo cubre ML, así
-que ahí Full no cambia mucho. Y antes de decidir, mirá la columna **u/mes**: un
-producto que quema mucho envío pero rota poco es mal candidato, porque el
-almacenamiento de Full se come la diferencia.
+Un dato para tener presente: el envío se paga **desde \\$1.000**, y el corte es
+limpio. Sobre 125 órdenes de 90 días, ninguna de las 100 por debajo de \\$1.000
+tuvo costo de envío para vos; las 25 de \\$1.000 para arriba lo tuvieron todas.
 
 **Visitas vs ventas tarda unos 10 minutos**: MercadoLibre solo deja consultar
 las visitas de a una publicación por vez.

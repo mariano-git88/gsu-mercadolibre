@@ -5,23 +5,22 @@ Candidatos a Full: por que productos empezar si se agranda el uso de Full.
     python full.py            -> ultimos 90 dias
     python full.py 60
 
-**Que NO hace esto, para no confundirse.** No estima cuanto se ahorraria.
-Se intento y no se puede con datos propios: MercadoLibre no publica ningun
-endpoint de recomendacion de Full (siete rutas probadas, todas 404 o 403) y
-SUPRABOND tiene apenas 20 SKU en Full sobre 997, de los cuales solo 7 tienen
-suficientes ventas con dato de envio. Con 7 casos no se puede sacar una
-mediana que se banque comparar contra los 451 del deposito propio. Cualquier
-numero de "ahorro estimado" seria inventado.
+**En la cuenta de Uruguay no hay NINGUNA publicacion en Full.** Las 438
+activas estan todas en deposito propio (`xd_drop_off`). O sea que este modulo
+no tiene con que comparar y no puede estimar ahorro alguno: queda como una
+foto de donde se va la plata de envio, util si algun dia se evalua entrar a
+Full, no como recomendador.
 
 **Que si hace.** Ordena los productos por el tamaño del premio: cuanta plata
 de envio quema cada uno por mes. Eso es lo que Full ataca, y esta medido de
 las ventas reales.
 
-El dato que ordena todo el analisis: SUPRABOND **paga envio casi solo arriba
-de $33.000**. Debajo de esa franja la mediana de envio pagado por el vendedor
-es cero (lo paga el comprador o lo cubre ML). O sea que el problema del envio
-esta concentrado en los productos caros, y ahi es donde Full puede mover la
-aguja.
+El dato que ordena todo el analisis: el envio se paga **desde $1.000**, y en
+Uruguay el corte es limpio. Medido sobre 125 ordenes de 90 dias: de las 100
+con precio unitario por debajo de $1.000, **ninguna** tuvo costo de envio para
+el vendedor; de las 25 por arriba, **todas**. La mediana de lo que paga el
+vendedor es $160. O sea que el problema del envio esta concentrado en los
+productos de mas de $1.000.
 
 Antes de decidir sobre un candidato hay que ponerle encima tres cosas que la
 API no da: el costo de almacenamiento de Full (por unidad y por tiempo, es lo
@@ -43,8 +42,9 @@ from meli import Meli, MeliError
 
 DIR = Path(__file__).resolve().parent
 
-# Franjas de precio: siguen los escalones de cargo fijo medidos en tramos.py.
-CORTES = [0, 16000, 24000, 33000, 60000, float("inf")]
+# Franjas de precio: siguen los escalones medidos en tramos.py. El corte de
+# $1.000 es el que importa: ahi arranca el envio a cargo del vendedor.
+CORTES = [0, 500, 750, 1000, 3000, float("inf")]
 
 # Un candidato tiene que rotar lo suficiente como para que el almacenamiento
 # de Full no se coma la diferencia.

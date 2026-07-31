@@ -81,8 +81,12 @@ def de_stock(df_stock):
 
 def de_escalon(df_ventana, cambio_max=0.20, unidades_min=3):
     """
-    Subas chicas que cruzan el escalon de $33.000, donde el cargo fijo de ML
-    pasa a cero. Es lo mas cercano a plata gratis que hay.
+    Cambios chicos de precio que aprovechan un escalon de ML.
+
+    **En Uruguay casi siempre son BAJAS, no subas**: el escalon de $1.000
+    ahorra $40 de cargo fijo pero activa ~$160 de envio a cargo del vendedor,
+    asi que lo que deja plata es quedarse debajo de esa linea, no cruzarla.
+    Ver `tramos.py`.
 
     Solo entran las que **mejoran el neto** y no arriesgan una pagina de
     catalogo que hoy se este ganando.

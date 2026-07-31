@@ -4,8 +4,9 @@ Publicaciones espejo con precios distintos.
 
     python espejos.py
 
-Casi la mitad del catalogo son duplicados: 997 SKU repartidos en 2.275
-publicaciones activas. Cuando dos publicaciones del MISMO producto tienen
+Buena parte del catalogo son duplicados: 447 SKU repartidos en 438
+publicaciones activas, y 143 SKU tienen mas de una publicacion activa. Cuando
+dos publicaciones del MISMO producto tienen
 precios distintos, la empresa **compite contra si misma**: el comprador que
 compara encuentra el producto mas barato en otra publicacion tuya, y la mas
 cara no vende nunca.

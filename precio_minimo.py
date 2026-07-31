@@ -7,19 +7,21 @@ Precio minimo viable: a que precio hay que estar para no perder plata.
 
 Es la herramienta inversa a `buybox.py`. Buy Box pregunta "hasta donde puedo
 bajar"; esta pregunta **"desde donde no puedo bajar"**, que con los costos
-reales de SUPRABOND resulto ser el problema grande: 197 SKU vendieron a perdida
-en 90 dias.
+reales resulto ser el problema grande en Argentina; en Uruguay hay que
+volver a medirlo con los costos cargados.
 
-**El detalle que hace toda la diferencia: el cargo fijo.** MercadoLibre cobra
-un porcentaje mas un cargo fijo por unidad, y ese cargo salta en escalones
-(ver `tramos.py`). Arriba de $33.000 el cargo fijo es **cero**. Eso hace que
-el precio minimo NO se pueda despejar con una sola cuenta: hay que resolverlo
-por tramo y quedarse con el menor precio que efectivamente cierra.
+**El detalle que hace toda la diferencia: los escalones.** MercadoLibre cobra
+un porcentaje mas un cargo fijo por unidad, y ese cargo salta por tramos de
+precio (ver `tramos.py`). Eso hace que el precio minimo NO se pueda despejar
+con una sola cuenta: hay que resolverlo por tramo y quedarse con el menor
+precio que efectivamente cierra.
 
-Y produce un resultado que parece un error y no lo es: a veces el precio
-minimo viable esta **justo en $33.000** aunque el producto valga bastante
-menos, porque cruzar el escalon elimina un cargo fijo de $3.005 que ningun
-aumento chico logra compensar.
+**En Uruguay hay un segundo escalon que pesa mas que el cargo fijo**: desde
+$1.000 el envio deja de pagarlo el comprador y pasa a pagarlo el vendedor
+(~$160, medido sobre las ventas reales). Como el cargo fijo que se ahorra ahi
+son $40, cruzar $1.000 encarece el producto en ~$120 netos. El precio minimo
+viable de un producto que hoy esta debajo de $1.000 casi nunca conviene
+empujarlo por encima de esa linea.
 
 La cuenta, con el ingreso ya sin IVA:
 

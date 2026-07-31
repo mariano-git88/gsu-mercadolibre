@@ -5,8 +5,9 @@ Buy Box del catalogo: en que publicaciones ganas la venta y en cuales no.
     python buybox.py            -> todas las publicaciones de catalogo
     python buybox.py 200        -> solo las 200 que mas vendieron (mas rapido)
 
-**Por que esto importa mas que cualquier otro analisis.** 1.009 de las 2.275
-publicaciones activas de SUPRABOND compiten en una pagina de catalogo. En esas
+**Por que esto importa mas que cualquier otro analisis.** 216 de las 438
+publicaciones activas compiten en una pagina de catalogo (otras 158 tienen
+producto de catalogo asociado sin competir todavia). En esas
 paginas todos los vendedores comparten la MISMA publicacion y MercadoLibre
 elige a uno solo para mostrar: el que gana se lleva practicamente todas las
 ventas, y el resto queda escondido detras de "otras opciones de compra". No es
@@ -271,9 +272,10 @@ def con_costos(df, costos_df, cargos_df, iva=0.0, margen_minimo=0.0,
        nuevo**.
 
     2. Por eso mismo se marca `cruza_escalon`: bajar el precio puede meterte
-       en un tramo con cargo fijo mas caro. El salto grande esta en $33.000,
-       donde el cargo fijo pasa de cero a $3.005. Bajar de $34.000 a $32.000
-       cuesta bastante mas que los $2.000 de diferencia.
+       en un tramo con cargo fijo mas caro. En Uruguay el salto grande esta en
+       $1.000, y va **a favor** de bajar: por debajo de esa linea el envio lo
+       paga el comprador. Bajar de $1.050 a $999 sale mas barato que los $51
+       de diferencia, porque te saca ~$160 de envio de encima.
 
     3. Se descuentan los **otros conceptos** (impuestos, logistico, general)
        con los mismos porcentajes que usa Rentabilidad. Tiene que ser asi:

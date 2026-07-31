@@ -230,7 +230,7 @@ def pesos_md(v):
     Igual que `pesos()` pero con el `$` escapado, para textos en markdown.
 
     Streamlit interpreta lo que va **entre dos `$`** como fórmula LaTeX y lo
-    renderiza como matemática. Un texto tan común como "de $29.615 a $33.000"
+    renderiza como matemática. Un texto tan común como "de $1.050 a $999"
     se convierte en un engendro ilegible. Con un solo importe no pasa nada;
     con dos o más en el mismo texto, sí. Usar esta en `st.markdown`,
     `st.error`, `st.warning`, `st.info`, `st.caption` y `st.success`.
@@ -1123,11 +1123,12 @@ elif seccion == "Ganar la venta":
                         f"**{rc['cruzan_escalon']} publicaciones cruzarían un "
                         "escalón de cargo fijo al bajar.** MercadoLibre cobra "
                         "un porcentaje más un cargo fijo por unidad, y ese "
-                        "cargo salta en escalones: el más grande está en "
-                        "\\$33.000, donde pasa de cero a \\$3.005. Bajar de "
-                        "\\$34.000 a \\$32.000 cuesta mucho más que los \\$2.000 de "
-                        "diferencia. El margen ya lo tiene en cuenta y por "
-                        "defecto quedan excluidas.", icon="🪜")
+                        "cargo salta en escalones. En Uruguay el más grande "
+                        "está en \\$1.000, y ahí bajar **te conviene**: por "
+                        "debajo de esa línea el envío lo paga el comprador, "
+                        "así que bajar de \\$1.050 a \\$999 te saca ~\\$160 de "
+                        "envío de encima y solo resigna \\$51 de precio. El "
+                        "margen ya lo tiene en cuenta.", icon="🪜")
 
                 st.markdown("###### Criterio para bajar")
                 k1, k2, k3 = st.columns(3)
@@ -1915,9 +1916,10 @@ elif seccion == "Precio óptimo":
         if rv["cruzan_escalon"]:
             st.info(
                 f"**{rv['cruzan_escalon']} sugerencias cruzan un escalón de "
-                "cargo fijo.** Arriba de $33.000 el cargo fijo de ML es cero: "
-                "hay casos donde subir unos pesos casi duplica el neto por "
-                "unidad.", icon="🪜")
+                "cargo fijo.** Ojo con el de \\$1.000: ahí el cargo fijo de ML "
+                "se hace cero, pero el envío pasa a pagarlo el vendedor "
+                "(~\\$160), así que cruzarlo hacia arriba cuesta plata. Lo que "
+                "conviene es quedarse debajo.", icon="🪜")
 
         st.markdown("###### Criterio")
         d1, d2 = st.columns(2)
@@ -2236,11 +2238,11 @@ elif seccion == "Oportunidades":
             "por el tamaño del premio: cuánta plata de envío quema cada uno "
             "por mes.")
         st.warning(
-            "**Esto no estima cuánto se ahorraría.** MercadoLibre no expone "
-            "ningún endpoint de recomendación de Full, y SUPRABOND tiene 20 SKU "
-            "en Full sobre 997: con esa muestra no se puede comparar contra "
-            "los del depósito propio sin inventar el número. Lo que sí está "
-            "medido es cuánto envío paga hoy cada producto.", icon="ℹ️")
+            "**En esta cuenta no hay ni una publicación en Full.** Las 438 "
+            "activas están en depósito propio (`xd_drop_off`), así que no hay "
+            "con qué comparar y esta vista queda como referencia de dónde se "
+            "va la plata de envío, nada más. Lo que sí está medido es cuánto "
+            "envío paga hoy cada producto.", icon="ℹ️")
 
         f1, f2 = st.columns([1.2, 3])
         dias_f = f1.selectbox("Período", [30, 60, 90], index=2,
@@ -2261,9 +2263,11 @@ elif seccion == "Oportunidades":
             else:
                 st.markdown("##### Dónde se paga el envío")
                 st.caption(
-                    "El dato que ordena todo: SUPRABOND paga envío casi solo "
-                    "arriba de $33.000. Debajo de esa franja la mediana de "
-                    "envío pagado por el vendedor es cero.")
+                    "El dato que ordena todo: el envío se paga **desde "
+                    "\\$1.000**, y el corte es limpio. Sobre 125 órdenes de 90 "
+                    "días, ninguna de las 100 por debajo de \\$1.000 tuvo costo "
+                    "de envío para vos; las 25 de \\$1.000 para arriba lo "
+                    "tuvieron todas, con una mediana de \\$160.")
                 st.dataframe(
                     foto, use_container_width=True, hide_index=True,
                     column_config={
@@ -2576,19 +2580,30 @@ elif seccion == "Oportunidades":
     elif op == "Tramos de comisión":
         st.caption(
             "MercadoLibre cobra un porcentaje **más un cargo fijo por unidad**, "
-            "y ese cargo salta en escalones. Hay precios donde **subir unos "
-            "pesos deja más plata neta**, porque cruzar el escalón baja o "
-            "elimina el cargo fijo.")
+            "y ese cargo salta en escalones de precio. En Uruguay el escalón "
+            "de \\$1.000 **es una trampa, no una oportunidad**: ahí el cargo "
+            "fijo desaparece, pero el envío pasa a pagarlo el vendedor y "
+            "cuesta bastante más de lo que ahorrás.")
 
-        with st.expander("Los escalones de tu cuenta"):
+        with st.expander("Los escalones de tu cuenta, y por qué el de $1.000 conviene esquivarlo"):
             st.markdown(
-                "| Precio | Cargo fijo por unidad |\n|---|---|\n"
-                "| menos de \\$16.000 | \\$1.250 |\n"
-                "| \\$16.000 a \\$23.999 | \\$2.505 |\n"
-                "| \\$24.000 a \\$32.999 | \\$3.005 |\n"
-                "| **\\$33.000 o más** | **\\$0** |\n\n"
-                "Medidos contra la API por búsqueda binaria. El salto de "
-                "$33.000 es el más fuerte: ahí el cargo fijo desaparece.")
+                "| Precio | Cargo fijo | Envío |\n|---|---|---|\n"
+                "| menos de \\$500 | \\$15 | lo paga el comprador |\n"
+                "| \\$500 a \\$749 | \\$25 | lo paga el comprador |\n"
+                "| \\$750 a \\$999 | \\$40 | lo paga el comprador |\n"
+                "| **\\$1.000 o más** | **\\$0** | **lo pagás vos (~\\$160)** |\n\n"
+                "Los cargos fijos están medidos contra la API por búsqueda "
+                "binaria. El umbral del envío está medido sobre las ventas "
+                "reales de 90 días, y el corte es limpio: por debajo de "
+                "\\$1.000, **ninguna** de 100 órdenes tuvo costo de envío para "
+                "vos; desde \\$1.000, **las 25 de 25** lo tuvieron.\n\n"
+                "Por eso cruzar \\$1.000 cuesta unos \\$154 por unidad: "
+                "ahorrás \\$40 de cargo fijo y te hacés cargo de \\$160 de "
+                "envío. Para empatar habría que llegar a \\$1.178, un 18% más "
+                "caro.\n\n"
+                "**La oportunidad está al revés que en Argentina**: los "
+                "productos que hoy están apenas por encima de \\$1.000 dejan "
+                "más plata bajando a \\$999 — y encima se venden más baratos.")
 
         if st.button("Analizar el catálogo"):
             with st.spinner("Calculando..."):
@@ -2600,12 +2615,13 @@ elif seccion == "Oportunidades":
             t1.metric("Publicaciones a reprecificar", len(dft))
             t2.metric("Mejor caso por unidad",
                       pesos(dft["gana_por_unidad"].max()))
-            cruzan = int((dft["cargo_fijo_nuevo"] == 0).sum())
-            t3.metric("Cruzan a cargo fijo cero", cruzan)
+            esquivan = int((dft["motivo"] == "baja para esquivar el envío").sum())
+            t3.metric("Esquivan el envío bajando", esquivan)
 
-            solo_grandes = st.checkbox(
-                "Ver solo las que ganan más de $1.000 por unidad", value=True)
-            v = dft[dft["gana_por_unidad"] > 1000] if solo_grandes else dft
+            corte = st.slider("Ver solo las que ganan al menos, por unidad",
+                              0, 100, 10, step=5,
+                              help="En pesos uruguayos. Con 0 se ven todas.")
+            v = dft[dft["gana_por_unidad"] >= corte]
 
             st.dataframe(
                 v, use_container_width=True, height=420,
@@ -2615,8 +2631,9 @@ elif seccion == "Oportunidades":
                         "Precio hoy", format="%.0f"),
                     "precio_sugerido": st.column_config.NumberColumn(
                         "Precio sugerido", format="%.0f"),
-                    "sube_precio": st.column_config.NumberColumn(
-                        "Sube", format="percent"),
+                    "cambia_precio": st.column_config.NumberColumn(
+                        "Cambia", format="percent"),
+                    "motivo": "Por qué",
                     "gana_por_unidad": st.column_config.NumberColumn(
                         "Ganás por unidad", format="%.0f"),
                     "neto_actual": st.column_config.NumberColumn(
@@ -2627,6 +2644,10 @@ elif seccion == "Oportunidades":
                         "Fijo hoy", format="%.0f"),
                     "cargo_fijo_nuevo": st.column_config.NumberColumn(
                         "Fijo nuevo", format="%.0f"),
+                    "envio_actual": st.column_config.NumberColumn(
+                        "Envío hoy", format="%.0f"),
+                    "envio_nuevo": st.column_config.NumberColumn(
+                        "Envío nuevo", format="%.0f"),
                     "vendidos": "Vendidas", "impacto": None, "item_id": None})
 
             st.download_button(
@@ -2650,7 +2671,7 @@ elif seccion == "Oportunidades":
             "lo que vende sin exposición (candidatas a empujar).")
         st.warning(
             "MercadoLibre solo deja consultar las visitas **de a una "
-            "publicación por vez**, así que este análisis hace ~2.275 llamadas "
+            "publicación por vez**, así que este análisis hace ~438 llamadas "
             "y tarda unos 10 minutos. Queda cacheado por rango de fechas.",
             icon="⏳")
 

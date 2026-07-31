@@ -7,9 +7,14 @@ Respuesta automatica de preguntas de compradores, con IA.
 
 De donde saca el contexto, en orden de peso:
 
-  1. **El historico de respuestas de SUPRABOND** (~1.585 preguntas ya
-     contestadas). Es la fuente mas valiosa: mismo producto, mismo tono,
-     respuestas ya validadas por el equipo. Se busca con BM25.
+  1. **El historico de respuestas propias.** Es la fuente mas valiosa: mismo
+     producto, mismo tono, respuestas ya validadas por el equipo. Se busca con
+     BM25.
+
+     **OJO en Uruguay: esta cuenta tiene 33 preguntas en toda su historia**
+     (la de Argentina tiene ~1.585). Con esa base el BM25 no tiene de donde
+     agarrarse y el modelo va a abstenerse casi siempre. Dejar `ia_activa`
+     apagado hasta que haya volumen.
   2. **Los datos de la publicacion**: titulo, descripcion, atributos, precio,
      stock, y las preguntas anteriores del MISMO articulo.
   3. **Documentos y sitios** que cargue el operador (fichas tecnicas, etc.).

@@ -29,10 +29,11 @@ Los cuatro casos que salen, y por que piden cosas distintas:
     subir hasta el piso (o mas) sin perderla.
   - **Fuera de catalogo**: no hay pagina que ganar, manda el piso.
 
-Sobre el escalon: cuando el precio sugerido queda apenas por debajo de un
-umbral de cargo fijo, se evalua correrlo hasta el umbral. Arriba de $33.000 el
-cargo fijo es cero, asi que subir unos pesos puede dejar mas neto que quedarse
-abajo — y a veces incluso mas que el precio "optimo" sin mirar el escalon.
+Sobre el escalon: cuando el precio sugerido queda cerca de un umbral, se
+evalua correrlo hasta el borde. **En Uruguay el umbral de $1.000 conviene
+esquivarlo, no cruzarlo**: ahi el cargo fijo cae de $40 a cero pero el envio
+pasa a pagarlo el vendedor (~$160), asi que cruzarlo cuesta ~$120 netos. Ver
+`tramos.py`, que tiene los dos escalones medidos.
 """
 
 import json

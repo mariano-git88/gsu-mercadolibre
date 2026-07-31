@@ -47,7 +47,7 @@ def visitas_por_item(ml, item_ids, desde, hasta, callback=None,
 
     OJO: `/items/visits` **acepta un solo id por llamada** — con dos o mas
     responde 400 "number of items to query is 1". O sea que es una llamada por
-    publicacion: con 2.275 activas son ~10 minutos. Por eso se cachea en disco
+    publicacion: con 438 activas son ~2 minutos. Por eso se cachea en disco
     por (item, rango de fechas).
 
     Los errores NO se silencian: si una publicacion falla queda como None y no

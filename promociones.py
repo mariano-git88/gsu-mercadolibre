@@ -98,7 +98,7 @@ def analizar(ml, pubs=None, tope=300, cargos=None, unidades=None,
     Devuelve (df_ofertas, df_campanas).
 
     Es una llamada por publicacion, asi que `tope` corta por las que mas
-    venden. Con el catalogo entero (2.275 activas) son unos 12 minutos.
+    venden. Con el catalogo entero (438 activas) son unos 2 minutos.
     """
     if pubs is None:
         pubs = json.loads((DIR / "catalogo.json").read_text(encoding="utf-8"))

@@ -85,63 +85,99 @@ Uruguay tiene la **misma estructura** que Argentina, en otra escala. Comisión
 | $750 a $999 | $40 |
 | **$1.000 o más** | **$0** |
 
-Ya está cargado en `tramos.py`. El escalón fuerte es el de **$1.000**.
+Ya está cargado en `tramos.py`.
 
-### Bug encontrado al portar (afecta también a CRAFTERS Argentina)
+## El segundo escalón: el envío, y por qué invierte el consejo
 
-`tramos.analizar()` sugería cruzar un escalón cada vez que el neto mejoraba,
-**sin verificar que el cargo fijo bajara**. Cruzar hacia arriba a un tramo con
-cargo más caro mejora el neto igual (subiste el precio), pero quedarse un peso
-por debajo del escalón deja todavía más.
+Desde **$1.000** el envío deja de pagarlo el comprador y pasa a pagarlo el
+vendedor. Medido sobre 125 órdenes de 90 días, cruzando por **precio unitario**
+(no por total de la orden, que ensucia el corte):
 
-En Argentina casi no se notaba porque el caso estrella ($33.000) sí baja el
-cargo a cero. En Uruguay saltó a la vista: dos de los tres escalones lo suben.
+| Precio unitario | Órdenes | Con costo de envío para el vendedor |
+|---|---|---|
+| menos de $1.000 | 100 | **0** |
+| $1.000 o más | 25 | **25** |
 
-Corregido acá con `if cargo_fijo(tope) >= cargo_fijo(precio): break`.
-Efecto: 26 sugerencias → 11.
+Mediana de lo que paga el vendedor: **$160** (rango $125-$232, promedio $183).
+El cache queda en `costos_envio.json`.
 
-**En el repo de CRAFTERS Argentina el bug sigue.** Son 76 de 164 sugerencias
-mal (46%), sobre SKU de mucho volumen. Ejemplo `CR0160000000000ZNODG`
-(37.365 unidades vendidas): sugiere $22.817 → $24.000, que gana $529 por
-unidad, cuando $23.999 gana $1.028. Deja $499 por unidad sobre la mesa.
+**Los dos escalones caen en el mismo precio y van en direcciones opuestas:**
 
-## Pendiente — números argentinos todavía en el código
+| Al cruzar $1.000 | |
+|---|---|
+| Cargo fijo | $40 → $0 · **ahorrás $40** |
+| Envío | comprador → vos · **te cuesta $160** |
+| Neto | **perdés ~$154 por unidad** |
 
-### 1. La narrativa del "$33.000"
+Para que cruzar $1.000 empate habría que llegar a **$1.178** (+18% sobre $999),
+muy por encima del 8% que el análisis se permite subir.
 
-El hallazgo argentino —arriba de $33.000 el cargo fijo es cero y el envío lo
-paga el vendedor— está escrito **a mano** en la explicación de varias pantallas:
+Por eso en Uruguay **el escalón de $1.000 es una trampa, no una oportunidad**,
+al revés que en Argentina. `tramos.py` ahora modela el envío dentro de `neto()`
+y busca en las dos direcciones. Resultado sobre el catálogo real: **19
+sugerencias, todas de BAJA** hacia $999, y **cero** de suba. Las de baja son
+doblemente buenas: dejan más neto y encima el producto se vende más barato.
 
-- `suprabond_app.py` (Precio óptimo, Oportunidades, Full, la tabla de tramos)
-- `tutorial_suprabond.py`
-- `full.py`, `precio_minimo.py`, `plata.py`, `buybox.py`
+### Bugs encontrados al portar (los dos afectan también a CRAFTERS Argentina)
 
-Todos esos textos hay que reescribirlos con los umbrales uruguayos reales.
-Ninguno afecta el cálculo, pero todos le mienten al operador si quedan así.
+**Bug 1 — cruzar hacia un cargo fijo más caro.** `analizar()` sugería cruzar un
+escalón cada vez que el neto mejoraba, sin verificar que el cargo fijo bajara.
+Cruzar hacia arriba a un tramo más caro mejora el neto igual (subiste el
+precio), pero quedarse un peso por debajo deja todavía más.
 
-### 2. Cifras de escala de CRAFTERS en la prosa
+Corregido con el filtro `coste(tope) < coste(precio)`, donde `coste` es cargo
+fijo **más** envío. En Argentina: 164 → 88 sugerencias (76 eran falsos
+positivos, el 46%). **Ya aplicado en el repo de CRAFTERS**, sin comitear.
 
-Aparecen números de la cuenta argentina que no son de Uruguay: "997 SKU",
-"3.713 publicaciones", "20 SKU en Full", "ML factura entre $22M y $35M por
-mes", "197 SKU vendieron a pérdida", "~1.585 preguntas". Están en docstrings y
-en textos de ayuda de `full.py`, `conciliacion.py`, `precio_minimo.py`,
-`preguntas.py`, `buybox.py`, `tutorial_suprabond.py` y la app. Se reemplazan
-después de la radiografía.
+**Bug 2 — el envío tratado como constante por SKU.** Más profundo y sin
+resolver en Argentina. `precio_minimo()` recibe el envío como un número fijo
+por SKU (el promedio histórico), no como una función escalonada del precio.
+Para un producto que hoy está debajo del umbral ese promedio es ~0, así que
+cuando la herramienta lo empuja por encima sigue calculando con envío cero.
 
-### 3. Tabla de familias de SKU (`mayoristas.py`)
+En Argentina la estructura es idéntica y el efecto es **más grande**:
+
+| Precio unitario | Órdenes | % que paga el vendedor | Mediana |
+|---|---|---|---|
+| $0 – $16.000 | 1.897 | 9% | $7.720 |
+| $16.000 – $24.000 | 1.245 | 4% | $7.641 |
+| $24.000 – $33.000 | 696 | 5% | $8.710 |
+| **$33.000 – $50.000** | 738 | **100%** | $7.230 |
+| $50.000+ | 594 | 98% | $7.720 |
+
+Cruzar $33.000 ahorra $3.005 de cargo fijo y activa ~$7.230 de envío. O sea que
+el "$33.000" que la herramienta argentina celebra como *"lo más cercano a plata
+gratis que hay"* (`plata.de_escalon`) **cuesta unos $4.200 por unidad**.
+
+Afecta a `precio_minimo.py`, `ventana.py`, `plata.py` y `buybox.py` en el repo
+argentino, más toda la narrativa del tutorial. Es un cambio de modelo, no un
+typo: **decisión de Mariano pendiente.**
+
+## Pendiente
+
+### 1. Cifras de escala de CRAFTERS en la prosa — HECHO
+
+**Hecho.** Reemplazadas por las uruguayas en `full.py`, `conciliacion.py`,
+`precio_minimo.py`, `preguntas.py`, `buybox.py`, `espejos.py`,
+`conversion.py`, `promociones.py`, `tutorial_suprabond.py` y la app.
+
+Quedó todo medido, no estimado: 438 activas, 447 SKU, 216 compitiendo en
+página de catálogo, 33 preguntas históricas, ML factura ~$21.000/mes.
+
+### 2. Tabla de familias de SKU (`mayoristas.py`)
 
 `_assets/sku_familia_subgrupo.xlsx` **se borró a propósito**: era la tabla de
 CRAFTERS, con SKU tipo `CR016000000CDBAR40`. La sección Mayoristas no va a
 funcionar hasta que exista la tabla equivalente de Suprabond, o hasta que se
 cambie la regla de familia por otra que sirva para los SKU de Contabilium.
 
-### 4. Assets de marca
+### 3. Assets de marca
 
 Faltan `_assets/logo_suprabond.png` (horizontal, ~560×138) e
 `_assets/icono_suprabond.png` (cuadrado, 256×256, para el favicon). La app
 degrada sola: si no están, muestra el texto "SUPRABOND" y un emoji de changuito.
 
-### 5. Credenciales — hechas, pero falta la Google Sheet
+### 4. Credenciales — hechas, pero falta la Google Sheet
 
 `credentials.txt` ya está cargado y la autorización OAuth está hecha. Los
 tokens hoy viven en `tokens.json` **local**, que no sobrevive a un reinicio en
@@ -154,7 +190,7 @@ dominio hace un 301 a `https://www.suprabond.com` y en el camino se pierde el
 home, sin código a la vista). El que funciona es `https://www.suprabond.com`,
 que devuelve 200 y conserva el query string.
 
-### 6. Preguntas con IA — no da
+### 5. Preguntas con IA — no da
 
 Descartado con datos: la cuenta tiene **33 preguntas en toda su historia**
 (Argentina tiene ~1.585). El motor arma su base con BM25 sobre las respuestas
