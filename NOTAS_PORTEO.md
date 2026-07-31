@@ -127,10 +127,10 @@ precio), pero quedarse un peso por debajo deja todavía más.
 
 Corregido con el filtro `coste(tope) < coste(precio)`, donde `coste` es cargo
 fijo **más** envío. En Argentina: 164 → 88 sugerencias (76 eran falsos
-positivos, el 46%). **Ya aplicado en el repo de CRAFTERS**, sin comitear.
+positivos, el 46%). **Aplicado y comiteado en CRAFTERS** (`3ab927b`).
 
-**Bug 2 — el envío tratado como constante por SKU.** Más profundo y sin
-resolver en Argentina. `precio_minimo()` recibe el envío como un número fijo
+**Bug 2 — el envío tratado como constante por SKU.** Más profundo.
+`precio_minimo()` recibía el envío como un número fijo
 por SKU (el promedio histórico), no como una función escalonada del precio.
 Para un producto que hoy está debajo del umbral ese promedio es ~0, así que
 cuando la herramienta lo empuja por encima sigue calculando con envío cero.
@@ -149,9 +149,21 @@ Cruzar $33.000 ahorra $3.005 de cargo fijo y activa ~$7.230 de envío. O sea que
 el "$33.000" que la herramienta argentina celebra como *"lo más cercano a plata
 gratis que hay"* (`plata.de_escalon`) **cuesta unos $4.200 por unidad**.
 
-Afecta a `precio_minimo.py`, `ventana.py`, `plata.py` y `buybox.py` en el repo
-argentino, más toda la narrativa del tutorial. Es un cambio de modelo, no un
-typo: **decisión de Mariano pendiente.**
+**Corregido y comiteado también en CRAFTERS** (`2825f69`): el envío pasa por
+`tramos.envio_a_cargo()`, que lo evalúa al precio candidato, en
+`precio_minimo.py`, `ventana.py`, `plata.py` y `buybox.py`. Efectos medidos en
+Argentina:
+
+- `tramos.py`: 88 → **135 sugerencias, todas de baja**. El mejor caso baja de
+  $33.079 a $32.999 (−0,2%) y gana **$4.566 por unidad** sobre 1.414 unidades.
+- `precio_minimo()`: el piso sube en 293 de 864 SKU (mediana +$22.484) y no
+  cambia en 521, que cierran debajo del umbral. Sólo **10 SKU** pasan de estar
+  OK a quedar debajo del piso; los otros 823 ya estaban antes.
+
+**Rentabilidad no estaba afectada**: mide el envío realmente pagado. El error
+estaba en las proyecciones, no en la medición.
+
+Los dos commits de CRAFTERS están **sin pushear**.
 
 ## Costos por SKU — resuelto, y no era donde parecía
 
