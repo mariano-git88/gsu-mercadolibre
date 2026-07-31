@@ -153,6 +153,32 @@ Afecta a `precio_minimo.py`, `ventana.py`, `plata.py` y `buybox.py` en el repo
 argentino, más toda la narrativa del tutorial. Es un cambio de modelo, no un
 typo: **decisión de Mariano pendiente.**
 
+## Costos por SKU — resuelto, y no era donde parecía
+
+Los costos **no están en Contabilium**. De los 596 productos del ERP, sólo
+**3 tienen `CostoInterno` cargado** (0,5%, medido jul 2026); los otros 593
+están en cero. El propio proyecto *Contabilidad - Claude* ya lo dice en
+`productos.py` y por eso usa `costo_efectivo = costo_sheet.fillna(erp)`.
+
+La verdad vive en la hoja **`costos_historico`** de la Google Sheet de ese
+proyecto: append-only, con `fecha_vigencia_desde` por fila, validada contra el
+catálogo de Contabilium al cargarse. Son **netos sin IVA**, en las mismas
+unidades que `PrecioFinal/1.22`.
+
+`costos_gsu.py` lee esa hoja y resuelve la vigencia por SKU (el costo más
+nuevo que ya empezó; las vigencias futuras se ignoran a propósito).
+`rentabilidad.costos_guardados()` lo usa primero y cae a la hoja `costos`
+local si no está configurado, así que **todas las pantallas lo toman solas**:
+Rentabilidad, Precio óptimo, Buy Box y Plata sobre la mesa.
+
+**Cobertura al 31/07/2026: 266 de los 293 SKU activos en ML (91%).** Los 27
+que faltan están listados por `python costos_gsu.py`.
+
+Configuración: sección `[gsheets_costos]` en los secrets, apuntando a la
+planilla de Contabilidad. Es **otra** planilla que la de `[gsheets]`, que
+guarda tokens y auditoría — por eso `costos_gsu.py` abre la suya y no reusa
+`almacen._abrir()`.
+
 ## Pendiente
 
 ### 1. Cifras de escala de CRAFTERS en la prosa — HECHO

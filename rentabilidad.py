@@ -229,12 +229,28 @@ def guardar_costos(costos_df, operador=""):
 
 def costos_guardados():
     """
-    (DataFrame sku/costo, cuando se guardo). DataFrame vacio si no hay nada.
+    (DataFrame sku/costo, de donde salio). DataFrame vacio si no hay nada.
 
-    Nunca lanza: si la hoja no existe o falla la lectura, se devuelve vacio
+    **Los costos vienen del sistema de Contabilidad**, no se cargan a mano en
+    esta app: son los mismos que usa el calculo de COGS, netos sin IVA, con
+    vigencia por fecha. Ver `costos_gsu.py`.
+
+    Si esa planilla no esta configurada cae a la hoja `costos` local, que es
+    como funcionaba antes y sigue sirviendo para probar cosas sueltas.
+
+    Nunca lanza: si nada de eso existe o falla la lectura, se devuelve vacio
     para que la seccion siga funcionando pidiendo la planilla a mano.
     """
     import almacen
+
+    try:
+        import costos_gsu
+        if costos_gsu.configurado():
+            df, origen = costos_gsu.traer_costos()
+            if len(df):
+                return df, origen
+    except Exception:  # noqa: BLE001
+        pass                    # cae a la hoja local
 
     try:
         filas = almacen.leer_hoja(HOJA_COSTOS, COLS_COSTOS)
