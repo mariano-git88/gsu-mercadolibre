@@ -1,0 +1,63 @@
+# Credenciales — NUNCA subir
+credentials.txt
+tokens.json
+tokens.json.tmp
+.streamlit/secrets.toml
+.gsheets/
+
+# Registro de cambios aplicados (queda en la Google Sheet)
+auditoria.csv
+backup_prueba_*.json
+
+# Caches que se regeneran solos
+catalogo.json
+exploracion.json
+historico_ventas.json
+costos_envio.json
+cargos_por_sku.csv
+
+# Planillas de trabajo
+*.xlsx
+*.xls
+!ejemplo_*.xlsx
+
+__pycache__/
+*.pyc
+
+# Bloque de secrets con la clave privada — NO subir
+secrets_para_streamlit_cloud.txt
+
+# La tabla de familias sí va al repo: la necesita el motor de mayoristas
+!_assets/sku_familia_subgrupo.xlsx
+
+# Cache del historico de preguntas
+preguntas_historico.json
+
+# Cache de visitas por publicacion
+visitas.json
+conversion.csv
+
+tramos.csv
+
+espejos.csv
+faq.csv
+conciliacion.csv
+envios.csv
+salud.csv
+
+# Salidas y cache de las alertas y el reporte semanal
+alertas_stock.csv
+reclamos.csv
+candidatos_full.csv
+reclamos_cache.json
+
+# Buy Box y promociones
+buybox.csv
+buybox_cache.json
+promociones.csv
+
+# Fallback local de la planilla de costos (la verdad vive en la Sheet)
+costos.csv
+precio_minimo.csv
+ventana.csv
+plata.csv

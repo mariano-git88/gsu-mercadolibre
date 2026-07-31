@@ -1,0 +1,65 @@
+name: Sincronizar stock
+
+# Cada 15 minutos, de 8 a 21 hs de Uruguay (11-23 UTC), de lunes a sábado.
+#
+# Por qué no 24/7: en un repo privado el plan gratuito da 2000 minutos de
+# Actions por mes. Cada 15 minutos todo el día serían ~3450 minutos y se
+# cortaría a mitad de mes. Esta ventana usa ~1600 y cubre el horario en que
+# alguien mira el stock.
+#
+# No se pierde ninguna venta: cada corrida revisa los últimos días, así que
+# lo que pase de madrugada o el domingo entra en la primera corrida siguiente.
+on:
+  schedule:
+    - cron: '*/15 11-23 * * 1-6'
+  workflow_dispatch:        # permite correrlo a mano desde la pestaña Actions
+
+concurrency:
+  # Si una corrida se demora, la siguiente espera en vez de pisarla:
+  # dos sincronizaciones simultáneas podrían renovar el token a la vez.
+  group: sincronizar-stock
+  cancel-in-progress: false
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Escribir los secrets
+        env:
+          SECRETS_TOML: ${{ secrets.GSU_ML_SECRETS_TOML }}
+        run: |
+          if [ -z "$SECRETS_TOML" ]; then
+            echo "Falta el secret GSU_ML_SECRETS_TOML en el repositorio."
+            exit 1
+          fi
+          mkdir -p .streamlit
+          printf '%s' "$SECRETS_TOML" > .streamlit/secrets.toml
+
+      - name: Sincronizar ventas
+        run: python stock_control.py --dias 3
+
+      # Va pegado acá y no en un workflow propio por los minutos de Actions:
+      # este job ya pagó el checkout y el pip install, que son la mayor parte
+      # del minuto. Sumar el paso cuesta segundos. Un workflow aparte cada 15
+      # minutos costaría ~2.100 min/mes y el plan gratuito son 2.000 en total.
+      # Las horas que este workflow no cubre (noches y domingos) las atiende
+      # responder_preguntas.yml.
+      - name: Responder preguntas nuevas
+        continue-on-error: true      # que no tire abajo el sync de stock
+        run: python preguntas_cron.py
+
+      - name: Limpiar credenciales
+        if: always()
+        run: rm -f .streamlit/secrets.toml

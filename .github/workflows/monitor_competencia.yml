@@ -1,0 +1,40 @@
+name: Monitorear competencia
+
+# Una vez por día, a las 9 de la mañana de Uruguay (12 UTC).
+# Diario y no cada hora a propósito: los precios de la competencia no cambian
+# tan rápido, y cada corrida consume minutos de Actions y llamadas a ML.
+on:
+  schedule:
+    - cron: '0 12 * * 1-6'
+  workflow_dispatch:
+
+concurrency:
+  group: monitor-competencia
+  cancel-in-progress: false
+
+jobs:
+  monitorear:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Escribir los secrets
+        env:
+          SECRETS_TOML: ${{ secrets.GSU_ML_SECRETS_TOML }}
+        run: |
+          if [ -z "$SECRETS_TOML" ]; then
+            echo "Falta el secret GSU_ML_SECRETS_TOML."; exit 1
+          fi
+          mkdir -p .streamlit
+          printf '%s' "$SECRETS_TOML" > .streamlit/secrets.toml
+      - name: Comparar contra la medición anterior
+        run: python monitor_cron.py
+
+      - name: Limpiar credenciales
+        if: always()
+        run: rm -f .streamlit/secrets.toml
