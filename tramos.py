@@ -10,9 +10,9 @@ fijo salta en escalones. La consecuencia practica es contraintuitiva: hay
 precios donde **subir unos pesos deja mas plata neta**, porque cruzar el
 escalon baja (o elimina) el cargo fijo.
 
-El caso mas fuerte esta en $33.000: por debajo se pagan $3.005 de cargo fijo,
-por encima **cero**. Un producto a $32.500 deja menos neto que el mismo
-producto a $33.000.
+El caso mas fuerte esta en $1.000: por debajo se pagan $40 de cargo fijo, por
+encima **cero**. Un producto a $950 deja menos neto que el mismo producto a
+$1.000, aunque se venda mas barato.
 
 Tambien marca lo inverso: productos que estan **apenas por encima** de un
 escalon y podrian bajar de tramo, o que estan a punto de cruzarlo hacia arriba
@@ -32,13 +32,14 @@ from meli import Meli, MeliError, SITE_ID
 
 DIR = Path(__file__).resolve().parent
 
-# Escalones del cargo fijo, medidos contra /sites/MLU/listing_prices con
-# busqueda binaria (jul 2026). `hasta` es exclusivo.
-#   precio < 16000  -> $1.250      16000..23999 -> $2.505
-#   24000..32999    -> $3.005      >= 33000     -> $0
-TRAMOS = [(16000, 1250.0), (24000, 2505.0), (33000, 3005.0),
+# Escalones del cargo fijo en URUGUAY (pesos uruguayos), medidos contra
+# /sites/MLU/listing_prices con busqueda binaria (jul 2026). `hasta` es
+# exclusivo.
+#   precio < 500 -> $15      500..749  -> $25
+#   750..999     -> $40      >= 1000   -> $0
+TRAMOS = [(500, 15.0), (750, 25.0), (1000, 40.0),
           (float("inf"), 0.0)]
-PORCENTAJE = 0.13          # comision base gold_special
+PORCENTAJE = 0.13          # comision base gold_special (igual que en MLA)
 
 # Cuanto se acepta subir un precio con tal de cruzar un escalon.
 MARGEN_SUBIDA = 0.08       # 8%
@@ -56,7 +57,7 @@ def neto(precio, pct=PORCENTAJE):
     return precio - (precio * pct + cargo_fijo(precio))
 
 
-def medir_umbrales(ml, desde=1000, hasta=60000, paso=500):
+def medir_umbrales(ml, desde=50, hasta=2000, paso=50):
     """Vuelve a medir los escalones contra la API, por si ML los cambia."""
     def fijo_api(p):
         r = ml.get(f"/sites/{SITE_ID}/listing_prices", price=p)
@@ -102,6 +103,13 @@ def analizar(pubs=None):
             if tope == float("inf") or tope <= precio:
                 continue
             if tope > precio * (1 + MARGEN_SUBIDA):
+                break
+            # Cruzar SOLO sirve si el cargo fijo baja. Si sube, el neto puede
+            # mejorar igual (subiste el precio), pero entonces quedarse un
+            # centavo abajo del escalon deja todavia mas: cobras casi lo mismo
+            # y pagas menos cargo. Sin esta condicion el analisis recomienda
+            # cruzar hacia arriba escalones que son peores.
+            if cargo_fijo(tope) >= cargo_fijo(precio):
                 break
             n = neto(tope)
             if n > neto_sug:
