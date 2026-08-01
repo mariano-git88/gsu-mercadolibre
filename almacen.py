@@ -34,6 +34,10 @@ SECRETS_LOCAL = DIR / ".streamlit" / "secrets.toml"
 HOJA_TOKENS = "tokens_ml"
 HOJA_AUDITORIA = "auditoria"
 
+# Ultimo motivo por el que fallo la lectura de secrets, si fallo. Lo llena
+# `_seccion()` y lo lee quien muestra el error al operador.
+ULTIMO_ERROR_SECRETS = None
+
 COLUMNAS_TOKENS = ["access_token", "refresh_token", "user_id", "scope",
                    "expira_en", "renovado"]
 COLUMNAS_AUDITORIA = ["fecha", "item_id", "campo", "valor_anterior",
@@ -46,26 +50,69 @@ class AlmacenError(RuntimeError):
 
 # ------------------------------------------------------------------ config
 
+def diagnostico_secrets():
+    """
+    Que ve el proceso cuando busca los secrets. Sirve para distinguir tres
+    fallas que dan el mismo sintoma: que no haya secrets cargados, que esten
+    cargados pero sin la seccion que se busca, y que Streamlit no los pueda
+    parsear.
+
+    Nunca lanza y **nunca devuelve valores**, solo nombres de secciones: se
+    muestra en pantalla y la app puede ser publica.
+    """
+    info = {"entorno": "terminal", "secciones": [], "error": None}
+    try:
+        import streamlit as st
+        info["entorno"] = "streamlit"
+        info["secciones"] = sorted(st.secrets.keys())
+    except Exception as e:  # noqa: BLE001
+        info["error"] = f"{type(e).__name__}: {e}"
+
+    if not info["secciones"] and SECRETS_LOCAL.exists():
+        import tomllib
+        try:
+            with open(SECRETS_LOCAL, "rb") as f:
+                info["secciones"] = sorted(tomllib.load(f).keys())
+                info["entorno"] += " + secrets.toml local"
+        except Exception as e:  # noqa: BLE001
+            info["error"] = f"secrets.toml local no parsea — {e}"
+    return info
+
+
 def _seccion(nombre):
     """
     Lee una seccion de los secrets. Primero de Streamlit (si la app esta
     corriendo), si no de .streamlit/secrets.toml, para que los scripts de
     terminal usen exactamente la misma configuracion.
+
+    Si Streamlit esta corriendo pero falla al leer los secrets, **no se traga
+    el error**: se guarda en `ULTIMO_ERROR_SECRETS` para que quien muestre el
+    mensaje pueda decir que paso de verdad. Antes esto hacia `except: pass` y
+    cualquier problema de secrets terminaba reportado como "falta
+    credentials.txt", que manda a buscar el problema donde no esta.
     """
+    global ULTIMO_ERROR_SECRETS
+
     try:
         import streamlit as st
-        seccion = st.secrets.get(nombre)
-        if seccion:
-            return dict(seccion)
-    except Exception:
-        pass
+    except Exception:                      # no hay streamlit: modo terminal
+        st = None
+
+    if st is not None:
+        try:
+            seccion = st.secrets.get(nombre)
+            if seccion:
+                return dict(seccion)
+        except Exception as e:  # noqa: BLE001
+            ULTIMO_ERROR_SECRETS = f"{type(e).__name__}: {e}"
 
     if SECRETS_LOCAL.exists():
         import tomllib
         try:
             with open(SECRETS_LOCAL, "rb") as f:
                 return dict(tomllib.load(f).get(nombre) or {})
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            ULTIMO_ERROR_SECRETS = f"secrets.toml local no parsea — {e}"
             return {}
     return {}
 

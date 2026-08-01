@@ -152,7 +152,44 @@ try:
     ml = conectar()
 except MeliError as e:
     st.error(f"No hay conexión con MercadoLibre: {e}")
-    st.info("Corré `python autorizar.py` en la carpeta del proyecto.")
+
+    # Qué ve el proceso realmente. Sin esto, "falta credentials.txt" manda a
+    # buscar el problema al lugar equivocado cuando lo que pasa es que los
+    # secrets no llegaron o no parsean.
+    diag = almacen.diagnostico_secrets()
+    esperadas = {"mercadolibre", "gsheets", "gsheets_costos"}
+    vistas = set(diag["secciones"])
+
+    with st.expander("Ver qué está encontrando la app", expanded=True):
+        st.write(f"**Entorno:** `{diag['entorno']}`")
+        if diag["secciones"]:
+            st.write("**Secciones de secrets que ve:** "
+                     + ", ".join(f"`{s}`" for s in diag["secciones"]))
+        else:
+            st.write("**No ve ninguna sección de secrets.**")
+        if diag["error"]:
+            st.write(f"**Error al leerlos:** `{diag['error']}`")
+
+        faltan = esperadas - vistas
+        if not diag["secciones"]:
+            st.warning(
+                "Los secrets no llegaron. En Streamlit Cloud: **⋮ → Settings → "
+                "Secrets**, pegar el bloque completo, **Save**, y después "
+                "**Reboot app** (no alcanza con Rerun).", icon="⚠️")
+        elif faltan:
+            st.warning(
+                "Los secrets llegaron pero faltan secciones: "
+                + ", ".join(f"`{s}`" for s in sorted(faltan))
+                + ". Hay que pegar el bloque **entero**, no solo una parte.",
+                icon="⚠️")
+        else:
+            st.info(
+                "Las secciones están todas, así que el problema es el "
+                "contenido de `[mercadolibre]`: revisá que `app_id`, "
+                "`secret_key` y `redirect_uri` tengan valor.", icon="ℹ️")
+
+    st.caption("Si corrés en tu máquina, alcanza con tener `credentials.txt` "
+               "en la carpeta del proyecto (`python autorizar.py` una vez).")
     st.stop()
 
 if "sello_catalogo" not in st.session_state:
