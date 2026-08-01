@@ -1,17 +1,16 @@
 name: Sincronizar stock
 
-# Cada 15 minutos, de 8 a 21 hs de Uruguay (11-23 UTC), de lunes a sábado.
+# Cada 2 horas, de 8 a 20 hs de Uruguay (11-23 UTC), de lunes a sábado.
 #
-# Por qué no 24/7: en un repo privado el plan gratuito da 2000 minutos de
-# Actions por mes. Cada 15 minutos todo el día serían ~3450 minutos y se
-# cortaría a mitad de mes. Esta ventana usa ~1600 y cubre el horario en que
-# alguien mira el stock.
+# Por qué tan espaciado: esta cuenta hace ~1,5 órdenes por día. Correr cada 15
+# minutos —como en Argentina, que tiene ~40 veces el volumen— serían 56
+# corridas diarias para encontrar, casi siempre, nada nuevo.
 #
-# No se pierde ninguna venta: cada corrida revisa los últimos días, así que
+# No se pierde ninguna venta: cada corrida revisa los últimos 3 días, así que
 # lo que pase de madrugada o el domingo entra en la primera corrida siguiente.
 on:
   schedule:
-    - cron: '*/15 11-23 * * 1-6'
+    - cron: '0 11-23/2 * * 1-6'
   workflow_dispatch:        # permite correrlo a mano desde la pestaña Actions
 
 concurrency:
@@ -50,15 +49,10 @@ jobs:
       - name: Sincronizar ventas
         run: python stock_control.py --dias 3
 
-      # Va pegado acá y no en un workflow propio por los minutos de Actions:
-      # este job ya pagó el checkout y el pip install, que son la mayor parte
-      # del minuto. Sumar el paso cuesta segundos. Un workflow aparte cada 15
-      # minutos costaría ~2.100 min/mes y el plan gratuito son 2.000 en total.
-      # Las horas que este workflow no cubre (noches y domingos) las atiende
-      # responder_preguntas.yml.
-      - name: Responder preguntas nuevas
-        continue-on-error: true      # que no tire abajo el sync de stock
-        run: python preguntas_cron.py
+      # El paso de responder preguntas con IA que hay en la version argentina
+      # NO va acá: esta cuenta tiene 33 preguntas en toda su historia y el
+      # motor arma su base con BM25 sobre las respuestas propias. Sin base, el
+      # modelo se abstiene siempre. Ver NOTAS_PORTEO.md.
 
       - name: Limpiar credenciales
         if: always()
