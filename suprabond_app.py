@@ -170,6 +170,9 @@ except MeliError as e:
         if diag["error"]:
             st.write(f"**Error al leerlos:** `{diag['error']}`")
 
+        for aviso in diag.get("avisos", []):
+            st.warning(aviso, icon="⚠️")
+
         faltan = esperadas - vistas
         if not diag["secciones"]:
             st.warning(

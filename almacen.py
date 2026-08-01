@@ -60,7 +60,8 @@ def diagnostico_secrets():
     Nunca lanza y **nunca devuelve valores**, solo nombres de secciones: se
     muestra en pantalla y la app puede ser publica.
     """
-    info = {"entorno": "terminal", "secciones": [], "error": None}
+    info = {"entorno": "terminal", "secciones": [], "error": None,
+            "avisos": []}
     try:
         import streamlit as st
         info["entorno"] = "streamlit"
@@ -76,6 +77,15 @@ def diagnostico_secrets():
                 info["entorno"] += " + secrets.toml local"
         except Exception as e:  # noqa: BLE001
             info["error"] = f"secrets.toml local no parsea — {e}"
+
+    # Las secciones pueden estar todas y aun asi no servir: el caso mas comun
+    # es haber pegado el secrets.toml local, cuyo service_account_json_path
+    # apunta a un archivo que en la nube no existe.
+    for nombre in ("gsheets", "gsheets_costos"):
+        if nombre in info["secciones"]:
+            sirve, motivo = credencial_google_utilizable(_seccion(nombre))
+            if not sirve:
+                info["avisos"].append(f"`[{nombre}]`: {motivo}")
     return info
 
 
@@ -126,10 +136,36 @@ def credenciales_meli():
     return _seccion("mercadolibre")
 
 
+def credencial_google_utilizable(cfg):
+    """
+    (sirve, motivo). Un `service_account_json_path` **que no existe no sirve**,
+    aunque este escrito en los secrets.
+
+    Es el caso tipico de pegar en Streamlit Cloud el secrets.toml de la
+    maquina local: la ruta apunta a `.gsheets/sa.json`, que esta en el
+    .gitignore y por lo tanto no existe en la nube. En la nube el service
+    account va **inline**, como `[gsheets.service_account]`.
+    """
+    if cfg.get("service_account"):
+        return True, ""
+    ruta = cfg.get("service_account_json_path")
+    if not ruta:
+        return False, "no hay service_account ni service_account_json_path"
+    p = Path(ruta)
+    if not p.is_absolute():
+        p = DIR / ruta
+    if p.exists():
+        return True, ""
+    return False, (f"`service_account_json_path` apunta a `{ruta}`, que no "
+                   f"existe. En la nube el service account va inline, como "
+                   f"`[gsheets.service_account]`.")
+
+
 def hay_sheet():
     cfg = _config()
-    return bool(cfg.get("spreadsheet_id") and
-                (cfg.get("service_account") or cfg.get("service_account_json_path")))
+    if not cfg.get("spreadsheet_id"):
+        return False
+    return credencial_google_utilizable(cfg)[0]
 
 
 def _abrir():
