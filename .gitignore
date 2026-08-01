@@ -61,3 +61,6 @@ costos.csv
 precio_minimo.csv
 ventana.csv
 plata.csv
+
+# Cache de elegibilidad de catalogo
+elegibilidad_catalogo.json
