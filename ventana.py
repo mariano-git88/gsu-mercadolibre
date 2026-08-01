@@ -287,6 +287,10 @@ def seleccionar(df, casos=None, cambio_maximo=0.30, unidades_minimas=1,
     if not len(df):
         return df
     sel = df[df["precio_sugerido"].notna()].copy()
+    # Mismo cuidado que en plata.juntar(): si la columna quedo `object` porque
+    # ninguna fila tenia precio, `.abs()` tira TypeError aunque el filtro de
+    # al lado ya la hubiera vaciado. El `&` de pandas no corta.
+    sel["cambio_pct"] = pd.to_numeric(sel["cambio_pct"], errors="coerce")
     sel = sel[sel["cambio_pct"].notna() & (sel["cambio_pct"].abs() > 0.001)]
     sel = sel[sel["cambio_pct"].abs() <= cambio_maximo]
     sel = sel[sel["unidades"] >= unidades_minimas]

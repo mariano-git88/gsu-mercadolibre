@@ -242,9 +242,16 @@ def juntar(stock=None, ventana=None, rentabilidad=None, promos=None,
     # Ejecutable = se puede escribir el precio nuevo de una. Reponer stock y
     # tomar una promo NO lo son: la primera se hace comprando mercadería y la
     # segunda desde el panel de ML.
-    df["cambio_pct"] = [
-        ((s_ - a) / a) if (pd.notna(s_) and pd.notna(a) and a) else None
-        for s_, a in zip(df["precio_sugerido"], df["precio_actual"])]
+    # `to_numeric` no es decorativo: si NINGUNA fila tiene precio (pasa cuando
+    # lo unico accionable es reponer stock o tomar promos), la lista queda toda
+    # en None, pandas la tipa como `object` y `.abs()` revienta con TypeError.
+    # Ademas el `&` de pandas NO corta: evalua `.abs()` aunque el `.notna()`
+    # de al lado ya sea False. Forzando float, los None pasan a NaN y anda.
+    df["cambio_pct"] = pd.to_numeric(
+        pd.Series([((s_ - a) / a) if (pd.notna(s_) and pd.notna(a) and a) else None
+                   for s_, a in zip(df["precio_sugerido"], df["precio_actual"])],
+                  index=df.index),
+        errors="coerce")
     df["ejecutable"] = (
         df["accion"].isin(ACCIONES_EJECUTABLES)
         & df["precio_sugerido"].notna()
