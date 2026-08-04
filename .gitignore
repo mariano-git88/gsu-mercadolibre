@@ -66,3 +66,6 @@ plata.csv
 elegibilidad_catalogo.json
 optin_catalogo.csv
 candidatas_catalogo.json
+
+# Salida de la carga de descuentos por planilla
+promos_planilla_simulacion.csv

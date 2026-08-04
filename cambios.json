@@ -1,0 +1,16 @@
+[
+  {
+    "fecha": "2026-08-03",
+    "hora": "15:40",
+    "titulo": "Descuentos en lote desde una planilla",
+    "tipo": "nuevo",
+    "puntos": [
+      "Sección nueva **Promos por planilla**: subís una planilla con una columna de SKU o EAN y otra con el descuento en porcentaje, y todos esos productos entran de una a una campaña propia.",
+      "Sirven las tres claves: el SKU, el EAN (código de barras) y el código MLU. El descuento se lee igual escrito `30`, `30%`, `0,30` o `0.3`.",
+      "Antes de escribir nada muestra la simulación: cuántas son altas nuevas, cuántas cambian de precio, cuáles ya estaban igual y cuáles rechaza MercadoLibre.",
+      "**MercadoLibre fija el descuento mínimo y máximo por publicación, no por campaña.** Sobre un artículo de \\$164 el mínimo es 10,1% y sobre uno de \\$11.314 es 5%. Lo que quede fuera del rango se marca y no se aplica, con el motivo dice entre qué valores se puede.",
+      "Volver a subir la planilla con otro porcentaje **corrige** un descuento ya cargado, no lo duplica.",
+      "La campaña se crea desde el panel de MercadoLibre; por la API no se puede. Una vez creada aparece sola en la lista de la sección."
+    ]
+  }
+]

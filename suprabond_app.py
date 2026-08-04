@@ -37,6 +37,7 @@ import rentabilidad as rent
 import mayoristas
 import preguntas as preg
 import promociones
+import promos_planilla
 import reporte
 import stock_control
 import tramos
@@ -239,10 +240,14 @@ with enc_btn:
 seccion = st.segmented_control(
     "Sección", ["Plata sobre la mesa", "Reporte semanal", "Preguntas",
                 "Alertas", "Ganar la venta",
-                "Precios", "Mayoristas", "Stock ML", "Control de stock",
+                "Precios", "Mayoristas", "Promos por planilla",
+                "Stock ML", "Control de stock",
                 "Rentabilidad", "Precio óptimo", "Competencia",
                 "Oportunidades"],
-    default="Plata sobre la mesa", label_visibility="collapsed")
+    default="Plata sobre la mesa", label_visibility="collapsed",
+    # La key la necesitan las pruebas: sin ella el selector no se puede
+    # accionar desde `streamlit.testing` y no hay forma de probar una sección.
+    key="seccion_actual")
 
 # En la nube el disco se borra en cada reinicio: si no hay Sheet configurada,
 # se perderia el refresh_token (habria que reautorizar a mano) y la auditoria.
@@ -1628,6 +1633,289 @@ elif seccion == "Mayoristas":
                     "Los tramos tardan unos segundos en verse en la publicación. "
                     "El editor de MercadoLibre los muestra en el bloque "
                     "*Precios mayoristas*.")
+
+elif seccion == "Promos por planilla":
+    st.markdown("#### Descuentos en lote desde una planilla")
+    st.caption(
+        "Subís una planilla con una columna de **SKU o EAN** (también sirve el "
+        "código MLU) y otra con el **descuento en porcentaje**, y cada producto "
+        "entra a la campaña con ese descuento. Los que no estén en la planilla "
+        "no se tocan.")
+
+    @st.cache_data(ttl=600, show_spinner=False)
+    def _campanas_propias(_ml, sello):
+        return promos_planilla.campanas_propias(_ml)
+
+    @st.cache_data(ttl=600, show_spinner=False)
+    def _elegibles(_ml, campana_id, sello):
+        return promos_planilla.elegibles(_ml, campana_id)
+
+    if "sello_promos" not in st.session_state:
+        st.session_state["sello_promos"] = 0
+
+    try:
+        camps = _campanas_propias(ml, st.session_state["sello_promos"])
+    except MeliError as e:
+        st.error(f"No pude traer las campañas: {e}")
+        st.stop()
+
+    if not len(camps):
+        st.warning(
+            "**No hay ninguna campaña propia vigente.** Estas campañas se "
+            "crean desde el panel de MercadoLibre, en *Publicaciones → "
+            "Promociones → Crear campaña propia*. Por la API no se pueden "
+            "crear: el pedido contesta que sí y no crea nada.", icon="⚠️")
+        st.stop()
+
+    st.info(
+        "La campaña se crea desde el panel de MercadoLibre; acá se le cargan "
+        "las publicaciones. Una vez creada aparece sola en esta lista.",
+        icon="ℹ️")
+
+    etiquetas = {
+        f"{c['nombre']}  ·  hasta el {c['hasta']}": c["campana_id"]
+        for _, c in camps.iterrows()}
+    elegida = st.selectbox("Campaña", list(etiquetas), key="camp_pp")
+    campana_id = etiquetas[elegida]
+
+    _, col_releer = st.columns([3, 1])
+    col_releer.button(
+        "↻ Releer campañas", key="rl_pp", use_container_width=True,
+        on_click=lambda: st.session_state.__setitem__(
+            "sello_promos", st.session_state["sello_promos"] + 1))
+
+    with st.spinner("Preguntándole a MercadoLibre qué publicaciones acepta..."):
+        try:
+            eleg = _elegibles(ml, campana_id, st.session_state["sello_promos"])
+        except MeliError as e:
+            st.error(f"No pude traer las publicaciones elegibles: {e}")
+            st.stop()
+
+    ya_activas = [e for e in eleg.values() if e["estado_promo"] == "started"]
+    e1, e2, e3 = st.columns(3)
+    e1.metric("Publicaciones que acepta", f"{len(eleg):,}".replace(",", "."))
+    e2.metric("Ya con descuento", len(ya_activas))
+
+    # El descuento minimo lo fija ML por publicacion y no es un porcentaje
+    # fijo: conviene decir el rango real antes de que arme la planilla.
+    minimos = [1 - e["max_precio"] / e["original_price"] for e in eleg.values()
+               if e.get("max_precio") and e.get("original_price")]
+    maximos = [1 - e["min_precio"] / e["original_price"] for e in eleg.values()
+               if e.get("min_precio") and e.get("original_price")]
+    if minimos:
+        e3.metric("Descuento admitido",
+                  f"{min(minimos):.0%} a {max(maximos):.0%}")
+        st.caption(
+            f"MercadoLibre fija el rango **por publicación**, no por campaña: "
+            f"el descuento mínimo va de {min(minimos):.1%} a {max(minimos):.1%} "
+            f"según el artículo. Lo que quede fuera se marca en la simulación "
+            f"y no se aplica.")
+
+    archivo_pp = st.file_uploader("Planilla (.xlsx o .csv)",
+                                  type=["xlsx", "xls", "csv"], key="up_pp")
+    if not archivo_pp:
+        st.session_state.pop("sim_pp", None)
+        st.session_state.pop("res_pp", None)
+        st.stop()
+
+    try:
+        df_pp = promos_planilla.leer_planilla(archivo_pp)
+    except Exception as e:  # noqa: BLE001
+        st.error(f"No pude leer la planilla: {e}")
+        st.stop()
+
+    ck_auto, cp_auto = promos_planilla.detectar_columnas(df_pp)
+    cols_pp = list(df_pp.columns)
+
+    p1, p2, p3 = st.columns([2, 2, 1])
+    with p1:
+        col_clave_pp = st.selectbox(
+            "Columna de SKU / EAN / MLU", cols_pp,
+            index=cols_pp.index(ck_auto) if ck_auto in cols_pp else 0,
+            key="ck_pp")
+    with p2:
+        col_pct_pp = st.selectbox(
+            "Columna de descuento", cols_pp,
+            index=cols_pp.index(cp_auto) if cp_auto in cols_pp else 0,
+            key="cp_pp")
+    with p3:
+        st.metric("Filas", f"{len(df_pp):,}".replace(",", "."))
+
+    st.caption(
+        "El descuento se lee igual escrito como `30`, `30%`, `0,30` o `0.3`. "
+        "De 1 para abajo se toma como fracción.")
+
+    with st.expander("Ver la planilla como la leí"):
+        st.dataframe(df_pp.head(50), use_container_width=True)
+
+    if st.button("Simular los descuentos", key="sim_btn_pp"):
+        try:
+            st.session_state["sim_pp"] = promos_planilla.simular(
+                df_pp, pubs, eleg, col_clave_pp, col_pct_pp, ml=ml)
+            st.session_state.pop("res_pp", None)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Error al simular: {e}")
+
+    sim_pp = st.session_state.get("sim_pp")
+    if sim_pp is None:
+        st.stop()
+    if sim_pp.empty:
+        st.warning("La simulación no encontró ninguna fila utilizable.")
+        st.stop()
+
+    res_cuenta = promos_planilla.resumen(sim_pp)
+    st.markdown("##### Qué va a pasar")
+    q1, q2, q3, q4 = st.columns(4)
+    q1.metric("Altas nuevas", res_cuenta.get("alta", 0))
+    q2.metric("Cambian de precio", res_cuenta.get("actualizar", 0))
+    q3.metric("Ya estaban igual", res_cuenta.get("sin_cambio", 0))
+    q4.metric("Fuera de rango", res_cuenta.get("fuera_de_rango", 0))
+
+    otros = {kk: v for kk, v in res_cuenta.items()
+             if kk not in ("alta", "actualizar", "sin_cambio",
+                           "fuera_de_rango")}
+    if otros:
+        cols_o = st.columns(max(len(otros), 2))
+        for col, (nombre, cant) in zip(cols_o, otros.items()):
+            col.metric(nombre.replace("_", " ").capitalize(), cant)
+
+    if res_cuenta.get("fuera_de_rango"):
+        st.warning(
+            f"**{res_cuenta['fuera_de_rango']} publicaciones tienen un "
+            "descuento que MercadoLibre no acepta** para ese artículo. El "
+            "motivo de cada una dice entre qué valores se puede. Quedan "
+            "afuera.", icon="⚠️")
+    if res_cuenta.get("no_elegible"):
+        st.warning(
+            f"**{res_cuenta['no_elegible']} publicaciones no entran en esta "
+            "campaña.** Es MercadoLibre el que decide qué admite; probá con "
+            "otra campaña.", icon="⚠️")
+
+    filtro_pp = st.multiselect(
+        "Filtrar por acción", sorted(sim_pp["accion"].unique()),
+        default=sorted(sim_pp["accion"].unique()), key="f_pp")
+    vista_pp = sim_pp[sim_pp["accion"].isin(filtro_pp)]
+
+    st.dataframe(
+        vista_pp, use_container_width=True, height=340, hide_index=True,
+        column_config={
+            "clave": "SKU / EAN",
+            "item_id": "Publicación",
+            "sku": "SKU",
+            "titulo": "Título",
+            "descuento": st.column_config.NumberColumn(
+                "Descuento", format="percent"),
+            "precio_actual": st.column_config.NumberColumn(
+                "Precio hoy", format="%.0f"),
+            "precio_promo": st.column_config.NumberColumn(
+                "Precio con descuento", format="%.2f"),
+            "precio_promo_vigente": st.column_config.NumberColumn(
+                "Promo vigente", format="%.2f"),
+            "min_permitido": None,
+            "max_permitido": None,
+            "accion": "Acción",
+            "motivo": "Motivo"})
+
+    st.download_button(
+        "Descargar la simulación",
+        vista_pp.to_csv(index=False).encode("utf-8"),
+        f"simulacion_promos_{datetime.now():%Y%m%d_%H%M}.csv", "text/csv",
+        key="dl_pp")
+
+    # -------------------------------------------------------------- aplicar
+    st.divider()
+    st.markdown("##### Aplicar en MercadoLibre")
+
+    a_aplicar_pp = (res_cuenta.get("alta", 0) + res_cuenta.get("actualizar", 0))
+    if a_aplicar_pp == 0:
+        st.info("No hay nada para aplicar.")
+        st.stop()
+
+    st.error(
+        f"**Esto carga {a_aplicar_pp} publicaciones a la campaña de verdad**, "
+        "o sea que cambia el precio que ve el comprador. Queda registrado en "
+        "la auditoría.", icon="⚠️")
+    st.caption(
+        "Para sacar una publicación de la campaña, o cambiarle el descuento, "
+        "se puede volver a subir la planilla con otro porcentaje: el mismo "
+        "pedido corrige uno ya cargado. Darla de baja del todo se hace desde "
+        "el panel de MercadoLibre.")
+
+    ap1, ap2 = st.columns([2, 3])
+    with ap1:
+        op_pp = st.text_input("Tu nombre (queda en el registro)", key="op_pp")
+    with ap2:
+        conf_pp = st.checkbox(
+            f"Confirmo que quiero cargar {a_aplicar_pp} publicaciones "
+            f"a «{camps.set_index('campana_id').loc[campana_id, 'nombre']}»",
+            key="conf_pp")
+
+    if st.button("Cargar a la campaña", key="go_pp",
+                 disabled=not (conf_pp and op_pp.strip())):
+        barra_pp = st.progress(0.0, text="Cargando...")
+        with st.spinner("Escribiendo en MercadoLibre..."):
+            st.session_state["res_pp"] = promos_planilla.aplicar(
+                ml, sim_pp, campana_id, operador=op_pp.strip(),
+                callback=lambda i, t, iid: barra_pp.progress(
+                    i / t, text=f"Cargando {i} de {t}: {iid}"))
+        barra_pp.empty()
+
+    resultados_pp = st.session_state.get("res_pp")
+    if resultados_pp is not None and len(resultados_pp):
+        ok_pp = int((resultados_pp["resultado"] == "OK").sum())
+        err_pp = len(resultados_pp) - ok_pp
+        if err_pp == 0:
+            st.success(f"Listo: {ok_pp} publicaciones cargadas a la campaña.")
+        else:
+            st.error(f"{ok_pp} cargadas, {err_pp} con error. El detalle está "
+                     "abajo; volver a subir la planilla reintenta solo las "
+                     "que faltan.")
+        st.dataframe(
+            resultados_pp[["clave", "item_id", "titulo", "descuento",
+                           "precio_promo", "resultado", "detalle"]],
+            use_container_width=True, height=280, hide_index=True,
+            column_config={
+                "clave": "SKU / EAN", "item_id": "Publicación",
+                "titulo": "Título",
+                "descuento": st.column_config.NumberColumn(
+                    "Descuento", format="percent"),
+                "precio_promo": st.column_config.NumberColumn(
+                    "Precio con descuento", format="%.2f"),
+                "resultado": "Resultado", "detalle": "Detalle"})
+        st.download_button(
+            "Descargar el resultado",
+            resultados_pp.to_csv(index=False).encode("utf-8"),
+            f"resultado_promos_{datetime.now():%Y%m%d_%H%M}.csv", "text/csv",
+            key="dlr_pp")
+        st.caption(f"Todo quedó registrado en {almacen.describir()}.")
+
+        # MercadoLibre tarda cerca de medio minuto en reflejar lo que se
+        # acaba de escribir. Verificar al toque muestra el estado viejo y
+        # hace parecer que no funciono.
+        st.divider()
+        st.markdown("##### Verificar contra MercadoLibre")
+        st.caption(
+            "MercadoLibre tarda alrededor de medio minuto en mostrar lo que "
+            "se acaba de cargar. Si verificás enseguida vas a ver el estado "
+            "anterior, y parece que no funcionó.")
+        if st.button("Verificar qué quedó activo", key="ver_pp"):
+            with st.spinner("Consultando..."):
+                ids_ok = list(resultados_pp[
+                    resultados_pp["resultado"] == "OK"]["item_id"])
+                ver = promos_planilla.verificar(ml, campana_id, ids_ok)
+            activas_n = int(ver["activa"].sum())
+            if activas_n == len(ver):
+                st.success(f"Las {activas_n} están activas en la campaña.")
+            else:
+                st.warning(
+                    f"{activas_n} de {len(ver)} figuran activas. Las que "
+                    "faltan pueden ser demora de MercadoLibre: probá de nuevo "
+                    "en un minuto.")
+            st.dataframe(ver, use_container_width=True, hide_index=True,
+                         column_config={
+                             "item_id": "Publicación", "activa": "Activa",
+                             "precio_promo": st.column_config.NumberColumn(
+                                 "Precio con descuento", format="%.2f")})
 
 elif seccion == "Stock ML":
     bloque_carga("stock")

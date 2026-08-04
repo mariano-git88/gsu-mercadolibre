@@ -165,6 +165,7 @@ salida están en el `.gitignore` y se regeneran solos.
 | `plata.py` | Junta lo accionable ordenado por plata |
 | `buybox.py` | Buy Box del catálogo |
 | `promociones.py` | Campañas que ML ofrece, con su aporte |
+| `promos_planilla.py` | Descuentos en lote a una campaña propia, desde planilla |
 | `competencia.py` | Mejor precio por EAN vía catálogo |
 | `mayoristas.py` | Precios por cantidad según reglas |
 | `stock_control.py` | Control de stock propio e idempotente |
@@ -181,9 +182,45 @@ salida están en el `.gitignore` y se regeneran solos.
 | `autorizar.py` | Autorización OAuth inicial |
 | `explorar.py` | Mapea qué endpoints andan contra la cuenta |
 
-Escriben en MercadoLibre: Precios, Mayoristas, Stock, Preguntas, Ganar la venta
-y Precio óptimo. El resto es solo lectura; Control de stock es un registro
-propio que no toca ML.
+Escriben en MercadoLibre: Precios, Mayoristas, Stock, Preguntas, Ganar la venta,
+Precio óptimo y Promos por planilla. El resto es solo lectura; Control de stock
+es un registro propio que no toca ML.
+
+---
+
+## Descuentos en lote desde una planilla
+
+`promos_planilla.py` carga un descuento por SKU a una **campaña propia**
+(`SELLER_CAMPAIGN` con sub-tipo `FLEXIBLE_PERCENTAGE`), que es el único tipo
+donde el porcentaje lo elige el vendedor. La planilla lleva una columna con
+**SKU, EAN o código MLU** y otra con el **descuento en porcentaje**.
+
+```bash
+python promos_planilla.py                       # las campañas propias
+python promos_planilla.py C-MLU815824           # qué publicaciones admite
+python promos_planilla.py C-MLU815824 lista.xlsx  # simula la planilla
+```
+
+Lo medido contra la cuenta real el 03/08/2026, con una prueba controlada sobre
+una publicación de cero ventas que después se revirtió:
+
+- **La campaña se crea desde el panel de MercadoLibre.** Por API no se puede:
+  `POST /seller-promotions/users/{user_id}` contesta **200 con cuerpo vacío y no
+  crea nada**. Es un falso positivo — quien mire el código de respuesta cree que
+  la creó.
+- **El rango de descuento lo fija ML por publicación, y no es un porcentaje
+  fijo.** Sobre un artículo de $164 el mínimo era 10,1% y sobre uno de $11.314,
+  5%. Por eso el rango se lee de ML y no se calcula. Pasarse contesta 400
+  `ERROR_CREDIBILITY_DISCOUNTED_PRICE`, que suena a "precio raro" pero significa
+  "fuera del rango permitido".
+- **El alta no lleva `offer_id` y tampoco lo devuelve**, al revés que las
+  promociones que ofrece ML. El campo del precio es `deal_price`.
+- **El mismo POST corrige un descuento ya cargado.** No hay que dar de baja para
+  cambiar un porcentaje mal puesto.
+- **El paginado ignora `offset` en silencio**: hay que pasar el token
+  `searchAfter`. Sin eso se ven 50 publicaciones elegibles cuando hay 458.
+- **Todo lo que se lee tarda ~30 segundos en reflejarse.** Verificar enseguida
+  muestra el estado viejo y hace parecer que la escritura no funcionó.
 
 ---
 
