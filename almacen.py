@@ -48,6 +48,59 @@ class AlmacenError(RuntimeError):
     pass
 
 
+# ------------------------------------------------------------------ reintentos
+#
+# Google Sheets se cae por momentos. Un 503 justo cuando arrancaba una corrida
+# la dejo en rojo sin que hubiera nada mal configurado: la corrida anterior y
+# la siguiente anduvieron bien.
+#
+# Lo importante es NO reintentar los errores de configuracion (403 sin
+# permiso, 404 ID inexistente): esos no se arreglan solos y reintentarlos solo
+# hace esperar al pedo antes de dar el mismo error.
+#
+# Ojo con que se reintenta: repetir una lectura es gratis, pero repetir un
+# append puede duplicar filas, porque un 503 no dice si la escritura llego o
+# no. Por eso los append-only de aca abajo NO pasan por esto.
+
+CODIGOS_TRANSITORIOS = {429, 500, 502, 503, 504}
+INTENTOS = 4
+ESPERA_BASE = 2.0        # espera 2, 4 y 8 segundos: 14 en total
+
+
+def _es_transitorio(e):
+    """True si conviene reintentar: Google hipo, no configuracion mal puesta."""
+    # gspread expone el codigo en la APIError. Preferimos el status HTTP real
+    # porque .code sale del JSON del error y vale -1 si no se pudo parsear.
+    codigo = getattr(getattr(e, "response", None), "status_code", None)
+    if not isinstance(codigo, int):
+        codigo = getattr(e, "code", None)
+    if isinstance(codigo, int) and codigo > 0:
+        return codigo in CODIGOS_TRANSITORIOS
+
+    # Sin codigo HTTP puede ser un corte de red, que tambien se arregla solo.
+    # Los errores de gspread que no son de red si traen codigo, asi que esto
+    # no se traga una mala configuracion.
+    try:
+        import requests
+        return isinstance(e, (requests.exceptions.ConnectionError,
+                              requests.exceptions.Timeout))
+    except ImportError:
+        return False
+
+
+def _reintentar(operacion):
+    """Corre la operacion, reintentando solo si Google contesto algo transitorio."""
+    for intento in range(1, INTENTOS + 1):
+        try:
+            return operacion()
+        except AlmacenError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            if intento == INTENTOS or not _es_transitorio(e):
+                raise
+            time.sleep(ESPERA_BASE ** intento)
+
+
 # ------------------------------------------------------------------ config
 
 def diagnostico_secrets():
@@ -191,7 +244,7 @@ def _abrir():
 
     cliente = gspread.service_account_from_dict(credenciales)
     try:
-        return cliente.open_by_key(cfg["spreadsheet_id"])
+        return _reintentar(lambda: cliente.open_by_key(cfg["spreadsheet_id"]))
     except Exception as e:
         raise AlmacenError(
             f"No pude abrir la Google Sheet ({cfg['spreadsheet_id']}). "
@@ -202,7 +255,9 @@ def _abrir():
 def _hoja(planilla, titulo, columnas):
     import gspread
     try:
-        return planilla.worksheet(titulo)
+        # WorksheetNotFound no trae codigo HTTP, asi que _reintentar la deja
+        # pasar de largo y el except de abajo la atrapa igual.
+        return _reintentar(lambda: planilla.worksheet(titulo))
     except gspread.WorksheetNotFound:
         hoja = planilla.add_worksheet(title=titulo, rows=1000,
                                       cols=max(len(columnas), 8))
@@ -217,7 +272,7 @@ def leer_tokens():
     if hay_sheet():
         try:
             hoja = _hoja(_abrir(), HOJA_TOKENS, COLUMNAS_TOKENS)
-            filas = hoja.get_all_records()
+            filas = _reintentar(hoja.get_all_records)
             if filas:
                 d = dict(filas[-1])       # siempre vale el ultimo guardado
                 d["expira_en"] = float(d.get("expira_en") or 0)
@@ -310,7 +365,8 @@ def leer_hoja(titulo, columnas):
     """Devuelve la hoja como lista de dicts. Si no existe, lista vacia."""
     if hay_sheet():
         try:
-            return _hoja(_abrir(), titulo, columnas).get_all_records()
+            hoja = _hoja(_abrir(), titulo, columnas)
+            return _reintentar(hoja.get_all_records)
         except Exception as e:
             raise AlmacenError(f"No pude leer la hoja '{titulo}': {e}") from e
 
@@ -332,7 +388,8 @@ def columna_hoja(titulo, columnas, nombre):
         try:
             hoja = _hoja(_abrir(), titulo, columnas)
             idx = columnas.index(nombre) + 1
-            return [v for v in hoja.col_values(idx)[1:] if v]
+            valores = _reintentar(lambda: hoja.col_values(idx))
+            return [v for v in valores[1:] if v]
         except Exception as e:
             raise AlmacenError(f"No pude leer la columna '{nombre}': {e}") from e
     return [str(f.get(nombre, "")) for f in leer_hoja(titulo, columnas)

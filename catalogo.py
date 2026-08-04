@@ -20,6 +20,32 @@ from meli import Meli, MeliError
 
 CACHE = Path(__file__).resolve().parent / "catalogo.json"
 
+# Uruguay y Argentina estan las dos en UTC-3 todo el año, pero la zona se
+# nombra igual para que la fecha no dependa del reloj del servidor.
+ZONA = "America/Montevideo"
+
+
+def actualizado_en():
+    """
+    Cuando se bajo el catalogo por ultima vez, sacado de la fecha del archivo
+    de cache. Devuelve '' si todavia no se bajo nunca.
+
+    OJO: esto mide **el catalogo**, no la version de la app. Son dos fechas
+    distintas y el encabezado llego a mostrar la equivocada.
+    """
+    from datetime import datetime
+    try:
+        marca = CACHE.stat().st_mtime
+    except OSError:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+        cuando = datetime.fromtimestamp(marca, ZoneInfo(ZONA))
+    except Exception:  # noqa: BLE001
+        # Sin base de zonas horarias, mejor la hora local que nada.
+        cuando = datetime.fromtimestamp(marca)
+    return cuando.strftime("%d/%m/%Y %H:%M")
+
 CAMPOS = ["id", "title", "price", "base_price", "original_price",
           "available_quantity", "sold_quantity", "status", "sub_status",
           "listing_type_id", "seller_custom_field", "attributes",
