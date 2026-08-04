@@ -126,6 +126,41 @@ IVA, poner el selector en "Sin descontar".
 
 ---
 
+## El piso de las marcas propias
+
+Una publicación de **Suprabond, Bulit o Somerset** no se vende por debajo de
+**1,85 veces el precio de lista de venta de Contabilium**. No es una cuenta de
+margen: es una decisión comercial, así que es un **piso duro** — ninguna
+pantalla lo perfora, ni siquiera para ganar el Buy Box.
+
+"Costo" acá es el `PrecioFinal` del concepto en Contabilium, o sea lo que
+Suprabond le cobra al comercio. No es el `CostoInterno`, que está vacío.
+Ejemplo medido: `CDB AR 80 P` está a $328, así que su piso es $606,80.
+
+```bash
+python lista_gsu.py     # cobertura y cuántas publicaciones lo violan
+```
+
+Medido el 04/08/2026 sobre el catálogo real:
+
+| | |
+|---|---|
+| Activas de las tres marcas | **419 de 438** (96%) |
+| Con piso calculable | **410** (98%) |
+| Sin cruce con el ERP | 9 — packs y variantes que no existen con ese código |
+| **Ya publicadas por debajo del piso** | **168 de 410** (41%) |
+
+El cruce es directo: el `SELLER_SKU` de MercadoLibre y el `Codigo` de
+Contabilium son el mismo string. La **marca sale de MercadoLibre** (atributo
+`BRAND`), no del ERP, que no tiene un campo de marca utilizable. Las 19
+publicaciones de reventa (Bosch, Aqualaf, Dremel y 4 sin marca) quedan fuera
+de la regla a propósito.
+
+Necesita `[contabilium]` en los secrets. Sin eso las pantallas siguen andando
+sin piso.
+
+---
+
 ## Uso
 
 ```bash
@@ -159,6 +194,7 @@ salida están en el `.gitignore` y se regeneran solos.
 | `ventas.py` | Órdenes de un período, con partición recursiva del rango |
 | `rentabilidad.py` | Cargos reales por SKU cruzados con costos |
 | `costos_gsu.py` | Costos desde el sistema de Contabilidad |
+| `lista_gsu.py` | Piso de precio de las marcas propias: Costo × 1,85 |
 | `tramos.py` | Optimizador de precios por escalón de comisión **y envío** |
 | `precio_minimo.py` | El piso: precio mínimo viable por SKU |
 | `ventana.py` | Piso + Buy Box + escalón en un precio sugerido |

@@ -69,3 +69,6 @@ candidatas_catalogo.json
 
 # Salida de la carga de descuentos por planilla
 promos_planilla_simulacion.csv
+
+# Cache de la lista de precios de Contabilium (se regenera solo)
+lista_gsu.json

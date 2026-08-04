@@ -36,6 +36,7 @@ import reclamos as rec
 import rentabilidad as rent
 import mayoristas
 import preguntas as preg
+import lista_gsu
 import promociones
 import promos_planilla
 import reporte
@@ -43,7 +44,8 @@ import stock_control
 import tramos
 import tutorial_suprabond
 import ventana
-from catalogo import CACHE as CACHE_CATALOGO, bajar_catalogo
+from catalogo import (CACHE as CACHE_CATALOGO, actualizado_en as catalogo_al,
+                      bajar_catalogo)
 from meli import Meli, MeliError
 
 _ASSETS = Path(__file__).resolve().parent / "_assets"
@@ -225,7 +227,11 @@ with enc_info:
     st.markdown("##### Herramientas de MercadoLibre")
     st.caption(f"{len(pubs):,} publicaciones · {len(activas):,} activas"
                .replace(",", "."))
-    st.caption(f"Última actualización: **{cambios.ultima_actualizacion()}**")
+    # Son dos fechas distintas y el encabezado mostraba solo la de la app,
+    # que es cuando se publicó una versión nueva. Lo que casi siempre se
+    # quiere saber es cuándo se bajó el catálogo.
+    st.caption(f"Catálogo bajado: **{catalogo_al() or 'todavía no'}**")
+    st.caption(f"Versión de la app: {cambios.ultima_actualizacion()}")
 with enc_btn:
     bt1, bt2 = st.columns(2)
     if bt1.button("📖 Tutorial", use_container_width=True):
@@ -296,6 +302,54 @@ def cumplen(n):
 def _costos_guardados_cache(sello):
     """`sello` fuerza la relectura cuando el operador sube una planilla nueva."""
     return rent.costos_guardados()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _pisos_cache(sello):
+    """
+    El piso de marca por publicación, desde la lista de venta de Contabilium.
+
+    Si no está configurado `[contabilium]` devuelve vacío y todas las
+    pantallas siguen andando sin piso, igual que antes. Un problema para
+    leer la lista **no puede** dejar sin Buy Box a la sección entera.
+    """
+    try:
+        return lista_gsu.traer_pisos(pubs)
+    except Exception as e:  # noqa: BLE001
+        return {"_error": str(e)[:200]}
+
+
+def pisos_de_marca(_pubs=None):
+    """Los pisos listos para pasarle a las secciones, sin la clave de error."""
+    datos = _pisos_cache(st.session_state.get("sello_catalogo", 0))
+    return {k: v for k, v in datos.items() if k != "_error"}
+
+
+def aviso_piso_de_marca():
+    """Explica el piso una vez, donde se use. Devuelve cuántos lo tienen."""
+    datos = _pisos_cache(st.session_state.get("sello_catalogo", 0))
+    if datos.get("_error"):
+        st.warning(
+            f"**No pude leer la lista de precios de Contabilium**, así que "
+            f"esta corrida va sin el piso de marca. Detalle: "
+            f"{datos['_error']}", icon="⚠️")
+        return 0
+    if not datos:
+        st.info(
+            "Sin `[contabilium]` en los secrets no hay piso de marca: la "
+            "herramienta trabaja solo con el margen.", icon="ℹ️")
+        return 0
+    # Se cuenta sobre las activas: `traer_pisos` calcula también las pausadas
+    # (para que el piso ya esté si alguna se reactiva), pero decir ese número
+    # en pantalla confunde contra lo que el operador ve en la tabla.
+    en_activas = sum(1 for p in activas if p["id"] in datos)
+    st.caption(
+        f"**Piso de marca activo en {en_activas} publicaciones.** Suprabond, "
+        f"Bulit y Somerset no se publican por debajo de "
+        f"**{lista_gsu.MULTIPLICADOR} veces el precio de lista de "
+        f"Contabilium**. Es un piso duro: no lo abre ningún criterio de esta "
+        "pantalla.")
+    return len(datos)
 
 
 def bloque_costos(clave):
@@ -1006,7 +1060,7 @@ elif seccion == "Ganar la venta":
 
     if gv == "Buy Box":
         st.caption(
-            "**1.009 de tus publicaciones activas compiten en una página de "
+            "**216 de tus publicaciones activas compiten en una página de "
             "catálogo.** En esas páginas todos los vendedores comparten la "
             "misma publicación y MercadoLibre muestra a uno solo: el que gana "
             "se lleva casi todas las ventas y el resto queda escondido detrás "
@@ -1047,9 +1101,11 @@ elif seccion == "Ganar la venta":
                                        cargos_bb["unidades_vendidas"]))
                 st.session_state["buybox"] = buybox.analizar(
                     ml, pubs=pubs, tope=tope_bb or None, cargos=cargos_bb,
-                    unidades=unidades_bb,
+                    unidades=unidades_bb, pisos=pisos_de_marca(pubs),
                     callback=lambda m: estado.caption(str(m)))
             estado.empty()
+
+        aviso_piso_de_marca()
 
         dbb = st.session_state.get("buybox")
         if dbb is not None and len(dbb):
@@ -1059,6 +1115,15 @@ elif seccion == "Ganar la venta":
             g2.metric("Ganando", rb["ganando"])
             g3.metric("Compartiendo", rb["compartiendo"])
             g4.metric("Perdiendo", rb["perdiendo"])
+
+            frenadas = int((dbb["diagnostico"]
+                            == "no se puede sin perforar el piso").sum())
+            if frenadas:
+                st.warning(
+                    f"**En {frenadas} publicaciones ganar el Buy Box exigiría "
+                    "bajar por debajo del piso de marca.** Quedan afuera de "
+                    "toda sugerencia: para esas, la palanca no es el precio.",
+                    icon="🚧")
 
             if rb["mas_barato_y_perdiendo"]:
                 extra = (f" La penalización mediana por no tener las palancas "
@@ -1088,11 +1153,21 @@ elif seccion == "Ganar la venta":
                                        default=por_defecto_bb or estados_bb)
             vbb = dbb[dbb["diagnostico"].isin(filtro_bb)] if filtro_bb else dbb
 
-            st.dataframe(
+            st.caption(
+                "**Tildá filas para bajarles el precio a mano**, sin pasar "
+                "por la planilla de costos. El precio nuevo es el que "
+                "MercadoLibre pide para ganar la página de catálogo.")
+            ev_bb = st.dataframe(
                 vbb, use_container_width=True, height=440, hide_index=True,
+                key="tabla_bb_principal", on_select="rerun",
+                selection_mode="multi-row",
                 column_config={
                     "item_id": "Publicación", "sku": "SKU", "titulo": "Título",
                     "diagnostico": "Diagnóstico",
+                    "piso_marca": st.column_config.NumberColumn(
+                        "Piso de marca", format="%.0f",
+                        help="Costo de lista de Contabilium x 1,85. No se "
+                             "puede publicar por debajo."),
                     "precio_actual": st.column_config.NumberColumn(
                         "Tu precio", format="%.0f"),
                     "precio_para_ganar": st.column_config.NumberColumn(
@@ -1125,6 +1200,112 @@ elif seccion == "Ganar la venta":
                 f"Los precios de los competidores se cachean "
                 f"{buybox.VIGENCIA_HORAS} horas. Para forzar la relectura, "
                 "volvé a apretar el botón después de ese plazo.")
+
+            # --------------------------------- aplicar solo lo que se tildó
+            #
+            # Este camino existe aparte del criterio automático de más abajo:
+            # ahí hace falta la planilla de costos y calcular márgenes, y a
+            # veces uno ya sabe qué publicación quiere mover.
+            elegidas_bb = list(getattr(ev_bb.selection, "rows", []) or [])
+            if elegidas_bb:
+                man = vbb.iloc[elegidas_bb].copy()
+                aplicables = man[man["precio_para_ganar"].notna()
+                                 & man["bajar"].notna()
+                                 & (man["bajar"] > 0)].copy()
+
+                st.divider()
+                st.markdown(f"##### Bajar a mano las {len(man)} que tildaste")
+
+                sin_precio = len(man) - len(aplicables)
+                if sin_precio:
+                    st.caption(
+                        f"{sin_precio} de las tildadas no tienen un precio "
+                        "para ganar más bajo que el actual (ya ganás, no "
+                        "compiten o no hay dato). Esas se ignoran.")
+
+                if "piso_marca" in aplicables:
+                    perfora = aplicables[
+                        aplicables["piso_marca"].notna()
+                        & (aplicables["precio_para_ganar"]
+                           < aplicables["piso_marca"])]
+                    if len(perfora):
+                        st.error(
+                            f"**{len(perfora)} de las que tildaste perforan el "
+                            "piso de marca y no se van a aplicar.** El piso "
+                            "es una regla comercial: no se puede saltear "
+                            "desde acá.", icon="🚧")
+                        aplicables = aplicables.drop(perfora.index)
+
+                if not len(aplicables):
+                    st.info("No queda ninguna para aplicar.")
+                else:
+                    st.dataframe(
+                        aplicables[["item_id", "sku", "marca", "titulo",
+                                    "precio_actual", "precio_para_ganar",
+                                    "bajar_pct", "piso_marca", "unidades"]],
+                        use_container_width=True, hide_index=True, height=220,
+                        column_config={
+                            "item_id": "Publicación", "sku": "SKU",
+                            "marca": "Marca", "titulo": "Título",
+                            "precio_actual": st.column_config.NumberColumn(
+                                "Precio hoy", format="%.0f"),
+                            "precio_para_ganar": st.column_config.NumberColumn(
+                                "Precio nuevo", format="%.0f"),
+                            "bajar_pct": st.column_config.NumberColumn(
+                                "Baja", format="percent"),
+                            "piso_marca": st.column_config.NumberColumn(
+                                "Piso", format="%.0f"),
+                            "unidades": "Unidades"})
+
+                    baja_max_man = aplicables["bajar_pct"].max()
+                    if baja_max_man and baja_max_man > buybox.TECHO_DE_BAJA:
+                        st.error(
+                            f"Una de las tildadas baja "
+                            f"{baja_max_man:.0%}, por encima del tope duro "
+                            f"del sistema ({buybox.TECHO_DE_BAJA:.0%}). "
+                            "Revisala antes de seguir.", icon="⚠️")
+
+                    st.warning(
+                        "**Sin la planilla de costos no se sabe con qué "
+                        "margen quedan.** El piso de marca sí se respeta. Si "
+                        "querés ver el margen antes, usá el criterio "
+                        "automático de más abajo.", icon="⚠️")
+                    st.error(
+                        "**Esto cambia los precios en MercadoLibre de "
+                        "verdad.** Cada cambio queda en la auditoría con el "
+                        "precio anterior.", icon="⚠️")
+
+                    om1, om2 = st.columns([2, 3])
+                    op_man = om1.text_input(
+                        "Tu nombre (queda en el registro)", key="op_bbman")
+                    conf_man = om2.checkbox(
+                        f"Confirmo que quiero bajar el precio de "
+                        f"{len(aplicables)} publicaciones", key="conf_bbman")
+
+                    if st.button("Aplicar las bajas que tildé",
+                                 key="go_bbman",
+                                 disabled=not (conf_man and op_man.strip())):
+                        barra = st.progress(0.0, text="Aplicando...")
+                        st.session_state["bb_manual"] = buybox.aplicar(
+                            ml, aplicables, operador=op_man.strip(),
+                            callback=lambda i, t, iid: barra.progress(
+                                i / t, text=f"Aplicando {i} de {t}: {iid}"))
+                        barra.empty()
+                        st.session_state.pop("buybox", None)
+                        st.session_state.pop("buybox_costos", None)
+
+            res_man = st.session_state.get("bb_manual")
+            if res_man is not None and len(res_man):
+                ok_m = int((res_man["resultado"] == "OK").sum())
+                if ok_m == len(res_man):
+                    st.success(f"{ok_m} precios actualizados.")
+                else:
+                    st.error(f"{ok_m} aplicados, {len(res_man) - ok_m} con "
+                             "error.")
+                st.dataframe(res_man, use_container_width=True,
+                             hide_index=True)
+                st.caption("Volvé a correr el análisis para ver el estado "
+                           "nuevo del Buy Box.")
 
             # ------------------------------------------- bajar precios solo
             st.divider()

@@ -1,5 +1,19 @@
 [
   {
+    "fecha": "2026-08-04",
+    "hora": "17:20",
+    "titulo": "Piso de marca, y elegir a mano en Ganar la venta",
+    "tipo": "nuevo",
+    "puntos": [
+      "**Suprabond, Bulit y Somerset no se publican por debajo de 1,85 veces el precio de lista de Contabilium.** Es un piso duro: no lo abre ningún criterio, ni siquiera para ganar el Buy Box. Aplica a 410 publicaciones activas.",
+      "En Ganar la venta, las publicaciones donde ganar exigiría perforar el piso ahora se marcan como **no se puede sin perforar el piso** y quedan afuera de toda sugerencia. Para esas, la palanca no es el precio.",
+      "**Ahora podés tildar filas en la tabla principal del Buy Box y bajarles el precio directo**, sin pasar antes por la planilla de costos. El piso de marca se respeta igual.",
+      "Ojo: hoy **168 de 410 publicaciones ya están publicadas por debajo del piso**. La herramienta no las toca sola; están listadas con `python lista_gsu.py`.",
+      "El encabezado decía una sola fecha y era la de la app. Ahora dice las dos: cuándo se bajó el catálogo y qué versión de la app estás usando.",
+      "Un corte pasajero de Google Sheets ya no tira abajo una corrida entera: las lecturas se reintentan solas. Las escrituras no se reintentan a propósito, porque duplicarían filas."
+    ]
+  },
+  {
     "fecha": "2026-08-03",
     "hora": "15:40",
     "titulo": "Descuentos en lote desde una planilla",

@@ -110,7 +110,7 @@ def traer_price_to_win(ml, item_ids, refrescar=False, callback=None):
 
 
 def marca(pub):
-    """La marca cargada como atributo BRAND. Las 1.009 de catálogo la tienen."""
+    """La marca cargada como atributo BRAND. Las 216 de catálogo la tienen."""
     for a in pub.get("attributes") or []:
         if a.get("id") == "BRAND" and a.get("value_name"):
             return str(a["value_name"]).strip()
@@ -132,13 +132,19 @@ def palancas(entrada):
 
 
 def analizar(ml, pubs=None, tope=None, cargos=None, unidades=None,
-             refrescar=False, callback=None):
+             refrescar=False, callback=None, pisos=None):
     """
     Devuelve el DataFrame de publicaciones de catalogo.
 
     `cargos` es el DataFrame de `rentabilidad.cargos_por_sku()`: si viene, se
     calcula que queda por unidad al precio para ganar. `unidades` es un dict
     SKU -> unidades del periodo, para priorizar por lo que realmente vende.
+
+    `pisos` es {item_id: piso} de `lista_gsu.traer_pisos()`. Es el piso duro
+    de las marcas propias (Costo x 1,85): cuando el precio para ganar queda
+    por debajo, la publicacion se diagnostica **"no se puede sin perforar el
+    piso"** y queda fuera de toda seleccion. Es una regla comercial, no una
+    cuenta de margen, asi que no la abre ningun criterio de la pantalla.
     """
     if pubs is None:
         pubs = json.loads((DIR / "catalogo.json").read_text(encoding="utf-8"))
@@ -197,6 +203,8 @@ def analizar(ml, pubs=None, tope=None, cargos=None, unidades=None,
         if ptw is not None and sku in envio_fijo:
             queda = ptw * (1 - tasa_comision.get(sku, 0.0)) - envio_fijo[sku]
 
+        piso_marca = (pisos or {}).get(p["id"])
+
         if estado_api == "winning":
             diag = "ganando"
         elif estado_api == "sharing_first_place":
@@ -205,6 +213,12 @@ def analizar(ml, pubs=None, tope=None, cargos=None, unidades=None,
             diag = "no compite"
         elif estado_api == "error":
             diag = "sin dato"
+        elif (piso_marca is not None and ptw is not None
+              and ptw < piso_marca):
+            # Piso duro de marca propia: ganar costaria perforarlo. Se dice
+            # antes que cualquier diagnostico de precio para que no aparezca
+            # como "alcanza con bajar poco" algo que no se va a poder hacer.
+            diag = "no se puede sin perforar el piso"
         elif (actual is not None and ganador is not None
               and actual <= ganador):
             # Ya sos mas barato y perdes igual: el problema no es el precio.
@@ -228,6 +242,7 @@ def analizar(ml, pubs=None, tope=None, cargos=None, unidades=None,
             "bajar": bajar,
             "bajar_pct": bajar_pct,
             "penalizacion_palancas": penalizacion,
+            "piso_marca": piso_marca,
             "queda_al_precio_para_ganar": queda,
             "palancas_sin_usar": ", ".join(libres),
             "palancas_activas": ", ".join(usadas),
@@ -244,7 +259,8 @@ def analizar(ml, pubs=None, tope=None, cargos=None, unidades=None,
 
     orden = {"perdés estando más barato": 0, "alcanza con bajar poco": 1,
              "perdés por precio": 2, "habría que bajar mucho": 3,
-             "compartiendo": 4, "ganando": 5, "no compite": 6, "sin dato": 7}
+             "no se puede sin perforar el piso": 4,
+             "compartiendo": 5, "ganando": 6, "no compite": 7, "sin dato": 8}
     df["_orden"] = df["diagnostico"].map(orden)
     df = df.sort_values(["_orden", "unidades", "vendidas_historico"],
                         ascending=[True, False, False]).drop(columns=["_orden"])
@@ -436,12 +452,15 @@ def seleccionar(df, margen_minimo=0.10, baja_maxima=0.15, unidades_minimas=1,
     `marcas` filtra por marca (lista). `items` restringe a una lista de
     `item_id`, para cuando el operador elige a mano en la tabla.
 
-    Tres candados que no se pueden abrir desde afuera:
+    Cuatro candados que no se pueden abrir desde afuera:
 
       - nunca se baja mas de `TECHO_DE_BAJA`, pase lo que pase;
       - el margen nunca puede quedar debajo de `PISO_DE_MARGEN`;
       - se saltean las que no tienen costo cargado. Sin costo no se sabe si
-        se gana o se pierde, y adivinar eso con plata real no corresponde.
+        se gana o se pierde, y adivinar eso con plata real no corresponde;
+      - **nunca se baja por debajo del piso de marca** (`piso_marca`, o sea
+        Costo x 1,85 de Suprabond, Bulit y Somerset). Ese piso es una decision
+        comercial y no lo abre ningun criterio de la pantalla.
     """
     if not len(df) or "veredicto" not in df:
         return df.iloc[0:0] if len(df) else df
@@ -463,6 +482,14 @@ def seleccionar(df, margen_minimo=0.10, baja_maxima=0.15, unidades_minimas=1,
         # lo contempla, pero por defecto ni se ofrecen: es plata que se
         # regala por cruzar un escalon.
         sel = sel[~sel["cruza_escalon"]]
+
+    # Piso de marca. Se aplica aca ademas del diagnostico porque el
+    # diagnostico se calcula una sola vez, al analizar, y la seleccion puede
+    # correrse con un DataFrame que venga de un cache anterior.
+    if "piso_marca" in sel:
+        perfora = (sel["piso_marca"].notna()
+                   & (sel["precio_para_ganar"] < sel["piso_marca"]))
+        sel = sel[~perfora]
 
     if marcas:
         sel = sel[sel["marca"].isin(marcas)]
@@ -489,6 +516,27 @@ def aplicar(ml, seleccion, operador="", callback=None):
     total = len(seleccion)
     for n, (_, f) in enumerate(seleccion.iterrows(), start=1):
         nuevo = round(float(f["precio_para_ganar"]), 2)
+
+        # Ultimo candado antes de escribir. `seleccionar()` ya filtra, pero
+        # `aplicar()` tambien se puede llamar con una seleccion armada a mano
+        # desde la tabla, y el piso de marca no puede depender de que quien
+        # llama se haya acordado.
+        piso = f.get("piso_marca") if hasattr(f, "get") else None
+        if piso is not None and pd.notna(piso) and nuevo < float(piso):
+            filas.append({
+                "item_id": f["item_id"], "sku": f["sku"],
+                "titulo": f["titulo"],
+                "precio_anterior": f["precio_actual"],
+                "precio_nuevo": nuevo,
+                "margen_al_ganar": f.get("margen_al_ganar"),
+                "resultado": "ERROR",
+                "detalle": f"Perfora el piso de marca (${float(piso):,.2f}). "
+                           "No se aplico.",
+            })
+            if callback:
+                callback(n, total, f["item_id"])
+            continue
+
         try:
             ok, detalle = ml.actualizar_publicacion(
                 f["item_id"], {"price": nuevo},
