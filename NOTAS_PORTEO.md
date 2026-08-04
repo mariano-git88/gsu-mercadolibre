@@ -219,12 +219,24 @@ negro (~10), sin nada en el medio. El umbral está en 90.
 
 Para regenerarlos: la "s" sola mide 233×429 en el original.
 
-### 4. Credenciales — hechas, pero falta la Google Sheet
+### 4. Credenciales y Google Sheet — HECHO
 
-`credentials.txt` ya está cargado y la autorización OAuth está hecha. Los
-tokens hoy viven en `tokens.json` **local**, que no sobrevive a un reinicio en
-Streamlit Cloud. Antes de deployar hay que crear la Google Sheet y configurar
-`[gsheets]` en los secrets, como en CRAFTERS.
+`credentials.txt` está cargado, la autorización OAuth hecha, y **la Google
+Sheet ya está configurada y andando**: los tokens y la auditoría viven en la
+hoja `tokens_ml` y `auditoria`, no en archivos locales. Verificado el
+03/08/2026 leyendo y escribiendo contra la planilla.
+
+`secrets_para_streamlit_cloud.txt` está armado con el service account
+**inline**, que es lo que hace falta en la nube — un `service_account_json_path`
+apunta a un archivo que en Streamlit Cloud no existe. Probado abriendo la
+planilla con esa credencial tal cual está en el archivo.
+
+`[gsheets]` y `[gsheets_costos]` apuntan **a propósito al mismo
+spreadsheet_id** (`gsu-contabilidad`): cada uno usa hojas distintas adentro
+(`tokens_ml` y `auditoria` por un lado, `costos_historico` por el otro) y la
+planilla ya estaba compartida solo con Mariano y el service account, así que
+el refresh token no queda expuesto. Si algún día conviene separarlas, alcanza
+con cambiar el `spreadsheet_id` de `[gsheets]` y migrar esas dos hojas.
 
 **Trampa del redirect_uri**: `https://www.suprabond.com.uy` **no sirve**. Ese
 dominio hace un 301 a `https://www.suprabond.com` y en el camino se pierde el
