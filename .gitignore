@@ -1,5 +1,6 @@
 # Credenciales — NUNCA subir
 credentials.txt
+sesion_ads.json
 tokens.json
 tokens.json.tmp
 .streamlit/secrets.toml

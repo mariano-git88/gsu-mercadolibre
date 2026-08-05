@@ -217,6 +217,9 @@ salida están en el `.gitignore` y se regeneran solos.
 | `plata.py` | Junta lo accionable ordenado por plata |
 | `buybox.py` | Buy Box del catálogo |
 | `promociones.py` | Campañas que ML ofrece, con su aporte |
+| `publicidad.py` | Product Ads: campañas, anuncios y reglas |
+| `panel_ads.py` | Escribe publicidad por el panel interno (la API no deja) |
+| `publicidad_cron.py` | Apaga los anuncios que no se bancan |
 | `promos_planilla.py` | Descuentos en lote a una campaña propia, desde planilla |
 | `competencia.py` | Mejor precio por EAN vía catálogo |
 | `mayoristas.py` | Precios por cantidad según reglas |
@@ -295,6 +298,34 @@ una publicación de cero ventas que después se revirtió:
   cualquier widget.
 - Se usa `segmented_control` y no `st.tabs`, que derrama contenido en los
   reruns.
+
+---
+
+## Publicidad
+
+La cuenta tiene **un anunciante** (`CRAFTERSUY`, id 72307) y **ninguna campaña
+todavía**. Medido el 05/08/2026 por dos vías: `campaigns/search` contesta
+`404 advertiser_campaigns_not_found` y `ads/search` devuelve 200 con cero
+resultados.
+
+Está portado para que esté listo el día que se prenda la primera campaña.
+Hasta entonces la sección se ve vacía, y el workflow **no tiene cron** — una
+corrida semanal gastaría minutos de Actions para no encontrar nada. Cuando
+haya campañas, descomentar el `schedule` en `.github/workflows/publicidad.yml`.
+
+**Los umbrales de las reglas no están calibrados contra esta cuenta**, porque
+no hay con qué. Son los de Argentina; el único valor en pesos (`gasto_minimo`)
+se bajó de $5.000 a $500, que son ~1,4 tickets promedio de acá. Cuando haya un
+mes de gasto real, revisarlos.
+
+**La escritura no va por la API.** MercadoLibre no habilita la escritura de
+Product Ads para la aplicación: contesta `401 User does not have permission to
+write` aun con `urn:ml:mktp:ads:/read-write` concedido. `panel_ads.py` usa el
+endpoint interno del panel con la cookie `ssid`, que va en los secrets bajo
+`[ads]`. Sin esa sección, todo simula y no apaga nada.
+
+En Uruguay eso **no se pudo verificar**: sin una sola campaña no hay nada que
+escribir. Cuando exista la primera, probarlo antes de confiar en el botón.
 
 ---
 

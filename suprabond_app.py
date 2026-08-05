@@ -13,7 +13,7 @@ por la simulacion.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -37,6 +37,7 @@ import rentabilidad as rent
 import mayoristas
 import preguntas as preg
 import lista_gsu
+import publicidad
 import promociones
 import promos_planilla
 import reporte
@@ -249,7 +250,7 @@ seccion = st.segmented_control(
                 "Precios", "Mayoristas", "Promos por planilla",
                 "Stock ML", "Control de stock",
                 "Rentabilidad", "Precio óptimo", "Competencia",
-                "Oportunidades"],
+                "Publicidad", "Oportunidades"],
     default="Plata sobre la mesa", label_visibility="collapsed",
     # La key la necesitan las pruebas: sin ella el selector no se puede
     # accionar desde `streamlit.testing` y no hay forma de probar una sección.
@@ -2990,6 +2991,371 @@ elif seccion == "Competencia":
                                "text/csv", key="dl_hcomp")
         elif hcomp is not None:
             st.info("Todavía no hay comparaciones guardadas.")
+
+elif seccion == "Publicidad":
+    st.markdown("#### Publicidad")
+    st.caption(
+        "Un solo anunciante. Hoy la cuenta **no tiene ninguna campaña "
+        "corriendo**, así que esta sección va a estar vacía hasta que se "
+        "prenda la primera desde el panel de MercadoLibre.")
+
+    dias_pub = st.selectbox("Período a medir", [7, 15, 30, 60], index=2,
+                            format_func=lambda d: f"últimos {d} días")
+    hasta_pub = datetime.now().date() - timedelta(days=1)
+    desde_pub = hasta_pub - timedelta(days=dias_pub - 1)
+
+    # Con st.tabs Streamlit ejecuta y renderiza las TRES vistas en cada rerun
+    # —incluida la que baja miles de anuncios de la API— y ademas las apila
+    # visualmente mientras recalcula. Se elige con un selector para que en el
+    # DOM exista solo la vista activa.
+    _VISTAS_PUB = ["Cómo va", "Qué haría con los anuncios",
+                   "Topes y estratégicos"]
+    vista_pub = st.segmented_control(
+        "Vista", _VISTAS_PUB, default=_VISTAS_PUB[0],
+        key="pub_vista", label_visibility="collapsed") or _VISTAS_PUB[0]
+
+    if vista_pub == "Cómo va":
+        if st.button("Traer campañas"):
+            try:
+                with st.spinner("Leyendo publicidad..."):
+                    st.session_state["pub_camp"] = [
+                        (a, publicidad.campanas(ml, a["advertiser_id"]))
+                        for a in publicidad.anunciantes(ml)]
+            except Exception as e:
+                st.error(f"No pude leer publicidad: {type(e).__name__}: {e}")
+                st.stop()
+
+        camps = st.session_state.get("pub_camp")
+        if camps:
+            for a, cs in camps:
+                st.markdown(f"**{a['advertiser_name']}** · anunciante "
+                            f"`{a['advertiser_id']}`")
+                for c in cs:
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Campaña", c["name"])
+                    m2.metric("Estado", c["status"])
+                    m3.metric("Presupuesto", pesos(c.get("budget") or 0))
+                    m4.metric("ACOS objetivo", f"{c.get('acos_target', 0):.0f}%")
+                st.divider()
+
+    elif vista_pub == "Qué haría con los anuncios":
+        st.caption(
+            f"Mide del {desde_pub:%d/%m} al {hasta_pub:%d/%m}. "
+            "anuncios por anunciante, así que la lectura tarda unos minutos.")
+
+        cfg = publicidad.config()
+        st.markdown("Topes vigentes: **ACOS máx** {:.0f}% · **ROAS mín** "
+                    "{:.1f} · se ignora lo que tenga menos de {:.0f} clics"
+                    .format(cfg["acos_max"], cfg["roas_min"],
+                            cfg["clicks_minimos"]))
+
+        # Los candidatos a entrar en campana salen del mismo analisis de
+        # Visitas vs ventas, que tarda varios minutos: se reusa el que ya
+        # este en memoria en vez de recalcularlo.
+        conv_pub = st.session_state.get("conv")
+        if conv_pub is None and (Path(__file__).parent / "conversion.csv").exists():
+            conv_pub = pd.read_csv(Path(__file__).parent / "conversion.csv")
+        if conv_pub is None:
+            st.caption(
+                "Para proponer **qué sumar a las campañas** hace falta el "
+                "análisis de *Visitas vs ventas* (Oportunidades). Sin eso, "
+                "acá solo se evalúan los anuncios que ya existen.")
+
+        if st.button("Analizar los anuncios"):
+            paso = st.empty()
+            try:
+                with st.spinner("Bajando anuncios y métricas..."):
+                    df_ads, advs_pub, camps_pub = publicidad.traer_todo(
+                        ml, desde_pub.isoformat(), hasta_pub.isoformat(),
+                        callback=lambda m: paso.caption(str(m)))
+                    plan_ads = publicidad.analizar(df_ads, pubs)
+                    nuevos = publicidad.candidatos(
+                        conv_pub, pubs, df_ads, advs_pub, camps_pub)
+                    if len(nuevos):
+                        plan_ads = pd.concat([plan_ads, nuevos],
+                                             ignore_index=True)
+                    st.session_state["pub_plan"] = plan_ads
+            except Exception as e:
+                paso.empty()
+                st.error(f"No pude analizar: {type(e).__name__}: {e}")
+                st.stop()
+            paso.empty()
+
+        pl = st.session_state.get("pub_plan")
+        if pl is not None and len(pl):
+            g1, g2, g3, g4 = st.columns(4)
+            g1.metric("Anuncios", len(pl))
+            g2.metric("Gasto", pesos(pl["gasto"].sum()))
+            g3.metric("Facturado", pesos(pl["facturado"].sum()))
+            acos_gral = (pl["gasto"].sum() / pl["facturado"].sum() * 100
+                         if pl["facturado"].sum() else 0)
+            g4.metric("ACOS general", f"{acos_gral:.0f}%")
+
+            resumen_pub = (pl.groupby("accion")
+                           .agg(anuncios=("item_id", "size"),
+                                gasto=("gasto", "sum"),
+                                unidades=("unidades", "sum")).reset_index())
+            st.dataframe(resumen_pub, use_container_width=True,
+                         hide_index=True,
+                         column_config={
+                             "accion": "Qué haría",
+                             "gasto": st.column_config.NumberColumn(
+                                 "Gasto", format="%.0f"),
+                             "unidades": st.column_config.NumberColumn(
+                                 "Unidades", format="%.0f")})
+
+            apagar = pl[pl["accion"] == "pausar"]
+            if len(apagar):
+                st.warning(
+                    f"**{len(apagar)} anuncios** gastaron "
+                    f"{pesos(apagar['gasto'].sum())} y facturaron "
+                    f"{pesos(apagar['facturado'].sum())}.", icon="🔥")
+
+            sumar = pl[pl["accion"] == "agregar"]
+            if len(sumar) and "campana_activa" in sumar:
+                dormidas = int((~sumar["campana_activa"].fillna(False)).sum())
+                if dormidas:
+                    st.warning(
+                        f"**{dormidas} de las {len(sumar)} irían a una "
+                        "campaña pausada** y ahí no van a gastar ni a "
+                        "mostrarse. La campaña general (Crafters) está en "
+                        "pausa: si querés que corran, hay que activarla.",
+                        icon="😴")
+            if len(sumar):
+                st.info(
+                    f"**{len(sumar)} publicaciones convierten y no se "
+                    "publicitan.** Salen de *Visitas vs ventas*: ya "
+                    "demostraron que venden, les falta gente que las vea. No "
+                    "entran las que tienen visitas y no venden — ahí el "
+                    "problema es el precio o las fotos, y pagar clics no lo "
+                    "arregla.", icon="🎯")
+
+            ver = st.selectbox("Ver", ["pausar", "agregar", "activar",
+                                       "revisar", "ninguna"], index=0,
+                               key="pub_ver")
+            v = pl[pl["accion"] == ver]
+            st.dataframe(
+                v[["sku", "titulo", "anunciante", "estado_ad", "gasto",
+                   "facturado", "unidades", "acos", "roas", "motivo"]],
+                use_container_width=True, height=380, hide_index=True,
+                column_config={
+                    "sku": "SKU", "titulo": "Título",
+                    "anunciante": "Campaña", "estado_ad": "Estado",
+                    "gasto": st.column_config.NumberColumn(
+                        "Gasto", format="%.0f"),
+                    "facturado": st.column_config.NumberColumn(
+                        "Facturado", format="%.0f"),
+                    "unidades": st.column_config.NumberColumn(
+                        "Unid.", format="%.0f"),
+                    "acos": st.column_config.NumberColumn(
+                        "ACOS %", format="%.0f"),
+                    "roas": st.column_config.NumberColumn(
+                        "ROAS", format="%.1f"),
+                    "motivo": "Por qué"})
+
+            st.download_button(
+                "Descargar el plan",
+                pl.to_csv(index=False).encode("utf-8"),
+                f"publicidad_{datetime.now():%Y%m%d}.csv", "text/csv",
+                key="pub_dl")
+
+            st.divider()
+            st.markdown("##### Aplicar en MercadoLibre")
+
+            if panel_ads.hay_sesion():
+                st.info(
+                    "Los cambios se aplican por el **panel de publicidad**, "
+                    "no por la API: MercadoLibre no habilitó la escritura de "
+                    "Product Ads para esta aplicación. Funciona con la cookie "
+                    "`ssid` guardada en los secrets.", icon="🔑")
+            else:
+                st.error(
+                    "**No hay forma de aplicar los cambios ahora mismo.** La "
+                    "API de MercadoLibre rechaza toda escritura de publicidad "
+                    "para esta aplicación —*«User does not have permission to "
+                    "write»*, y falla igual con la cuenta dueña de los "
+                    "anunciantes— y tampoco está cargada la sesión del panel, "
+                    "que es la vía alternativa. Para habilitarla hay que "
+                    "poner la cookie `ssid` en los secrets, bajo "
+                    "`[ads]`.", icon="🔒")
+
+            n_apagar = int((pl["accion"] == "pausar").sum())
+            n_sumar = int((pl["accion"] == "agregar").sum())
+            n_prender = int((pl["accion"] == "activar").sum())
+
+            como_apagar = st.radio(
+                f"A los {n_apagar} que hay que apagar",
+                ["Pausarlos (quedan en la campaña)",
+                 "Sacarlos de la campaña (quedan en idle)",
+                 "No tocarlos"],
+                key="pub_apagar", horizontal=False)
+
+            ejecutar = pl.copy()
+            elegidas = []
+            if como_apagar.startswith("Pausar"):
+                elegidas.append("pausar")
+            elif como_apagar.startswith("Sacar"):
+                # Las reglas marcan 'pausar'; sacarlas de la campaña es la
+                # misma decision con otra intensidad.
+                ejecutar.loc[ejecutar["accion"] == "pausar", "accion"] = "sacar"
+                elegidas.append("sacar")
+
+            if n_sumar and st.checkbox(
+                    f"Sumar las {n_sumar} que convierten y no se publicitan",
+                    key="pub_sumar"):
+                elegidas.append("agregar")
+            if n_prender and st.checkbox(
+                    f"Encender las {n_prender} apagadas que rinden",
+                    key="pub_prender"):
+                elegidas.append("activar")
+
+            elegidas = tuple(elegidas)
+            cuantas = (int(ejecutar["accion"].isin(elegidas).sum())
+                       if elegidas else 0)
+
+            if any(a in elegidas for a in ("agregar", "activar")):
+                st.warning(
+                    "Estás incluyendo acciones que **empiezan a gastar**. Un "
+                    "anuncio que entra a una campaña arranca activo.",
+                    icon="💸")
+
+            if "agregar" in elegidas and len(sumar):
+                dormidas_g = sumar[~sumar.get(
+                    "campana_activa", pd.Series(True, index=sumar.index))
+                    .fillna(False)]
+                if len(dormidas_g):
+                    st.error(
+                        f"**{len(dormidas_g)} de las que vas a sumar van a "
+                        "una campaña pausada, así que se va a prender.** Y "
+                        "prender una campaña enciende **todo lo que ya tiene "
+                        "adentro**, no solo lo que estás agregando: la "
+                        "general de Crafters tiene 4.557 anuncios, ~1.550 en "
+                        "estado corrible, con un tope de \\$78.859. Eso es "
+                        "empezar a gastar en mil quinientos anuncios que "
+                        "nadie revisó, no sumar 24.", icon="🚨")
+
+            op_pub = st.text_input("Tu nombre (queda en el registro)",
+                                   key="pub_op")
+            conf_pub = st.checkbox(
+                f"Confirmo que quiero aplicar {cuantas} cambios en la "
+                "publicidad de MercadoLibre", key="pub_conf")
+            if st.button(f"Aplicar {cuantas} cambios", key="pub_go",
+                         disabled=not (conf_pub and op_pub.strip() and cuantas
+                                       and panel_ads.hay_sesion())):
+                barra = st.progress(0.0, text="Aplicando...")
+                try:
+                    sesion_ads = panel_ads.leer_sesion()
+                    partes = []
+                    # Sumar a una campaña pausada no sirve: el anuncio entra
+                    # activo pero la campaña no corre.
+                    if "agregar" in elegidas:
+                        st.session_state["pub_prendidas"] = (
+                            panel_ads.despertar_campanas(
+                                sesion_ads, ml,
+                                ejecutar[ejecutar["accion"] == "agregar"],
+                                callback=lambda m: barra.progress(
+                                    0.0, text=str(m))))
+                    # Cada acción va por separado: el endpoint de sacar de
+                    # campaña es otro y acepta lotes mucho más chicos.
+                    for acc in elegidas:
+                        filas = ejecutar[ejecutar["accion"] == acc]
+                        if not len(filas):
+                            continue
+                        partes.append(panel_ads.aplicar(
+                            sesion_ads, ml, filas, accion=acc,
+                            callback=lambda i, t, d: barra.progress(
+                                min(i / max(t, 1), 1.0),
+                                text=f"{acc}: {i} de {t} ({d})")))
+                    res_pub = (pd.concat(partes, ignore_index=True)
+                               if partes else pd.DataFrame())
+                except Exception as e:
+                    barra.empty()
+                    st.error(f"La corrida se cortó: {type(e).__name__}: {e}")
+                    st.stop()
+                barra.empty()
+                st.session_state["pub_res"] = res_pub
+
+            prendidas = st.session_state.get("pub_prendidas")
+            if prendidas:
+                st.warning(
+                    "Se prendieron campañas para que los anuncios nuevos "
+                    "corran: " + ", ".join(
+                        f"**{c['nombre']}** (tope {pesos(c['presupuesto'] or 0)})"
+                        for c in prendidas)
+                    + ". Con eso también arrancó todo lo que ya tenían "
+                      "adentro.", icon="🔛")
+
+            res_pub = st.session_state.get("pub_res")
+            if res_pub is not None and len(res_pub):
+                ok_pub = int((res_pub["resultado"] == "OK").sum())
+                if ok_pub == len(res_pub):
+                    st.success(f"{ok_pub} anuncios actualizados.")
+                else:
+                    st.error(f"{ok_pub} aplicados, "
+                             f"{len(res_pub) - ok_pub} con error.")
+                    if res_pub["detalle"].astype(str).str.contains(
+                            "permission|401|503", case=False).any():
+                        st.info(
+                            "Los errores dicen que falta permiso: es lo de "
+                            "arriba, no un problema de esta pantalla.",
+                            icon="🔒")
+                st.dataframe(res_pub, use_container_width=True,
+                             hide_index=True)
+
+    elif vista_pub == "Topes y estratégicos":
+        st.caption(
+            "Los topes y la lista de estratégicos viven en la Google Sheet, "
+            "no en un archivo: en la nube el disco se borra en cada deploy.")
+
+        cfg = publicidad.config()
+        t1, t2 = st.columns(2)
+        nuevo_cfg = {}
+        with t1:
+            nuevo_cfg["acos_max"] = st.number_input(
+                "ACOS máximo %", 1.0, 200.0, float(cfg["acos_max"]), 1.0,
+                help="Arriba de esto el anuncio se pausa.")
+            nuevo_cfg["roas_min"] = st.number_input(
+                "ROAS mínimo", 0.1, 50.0, float(cfg["roas_min"]), 0.1)
+            nuevo_cfg["gasto_minimo"] = st.number_input(
+                "Gasto mínimo para juzgar", 0.0, 999999.0,
+                float(cfg["gasto_minimo"]), 500.0)
+        with t2:
+            nuevo_cfg["acos_bueno"] = st.number_input(
+                "ACOS bueno %", 1.0, 200.0, float(cfg["acos_bueno"]), 1.0,
+                help="Debajo de esto, un anuncio apagado se propone encender.")
+            nuevo_cfg["roas_bueno"] = st.number_input(
+                "ROAS bueno", 0.1, 50.0, float(cfg["roas_bueno"]), 0.1)
+            nuevo_cfg["clicks_minimos"] = st.number_input(
+                "Clics mínimos para juzgar", 0, 10000,
+                int(cfg["clicks_minimos"]), 5)
+
+        if st.button("Guardar topes"):
+            ok, det = publicidad.guardar_config(nuevo_cfg)
+            st.success("Topes guardados.") if ok else st.error(det)
+
+        st.divider()
+        st.markdown("##### SKU estratégicos")
+        st.caption(
+            "Estos SKU **no los toca ninguna regla**, ganen o pierdan. Son "
+            "los que se publicitan por decisión comercial: lanzamientos, los "
+            "que traen tráfico, los que se defienden de un competidor. Sin "
+            "esta lista, la primera corrida los apaga a todos.")
+
+        est = publicidad.estrategicos()
+        df_est = pd.DataFrame(
+            [{"sku": k, "nota": v} for k, v in est.items()]
+            or [{"sku": "", "nota": ""}])
+        editado = st.data_editor(df_est, num_rows="dynamic",
+                                 use_container_width=True, key="pub_est",
+                                 column_config={"sku": "SKU",
+                                                "nota": "Por qué"})
+        if st.button("Guardar estratégicos"):
+            filas = [{"sku": str(r["sku"]).strip().upper(),
+                      "nota": str(r["nota"] or "")}
+                     for _, r in editado.iterrows()
+                     if str(r.get("sku", "")).strip()]
+            ok, det = publicidad.guardar_estrategicos(filas)
+            st.success(f"{len(filas)} SKU guardados.") if ok else st.error(det)
 
 elif seccion == "Oportunidades":
     st.markdown("#### Dónde hay plata sobre la mesa")

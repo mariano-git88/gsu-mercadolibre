@@ -1,6 +1,19 @@
 [
   {
     "fecha": "2026-08-05",
+    "hora": "16:45",
+    "titulo": "Publicidad: portada, y lista para cuando arranque",
+    "tipo": "nuevo",
+    "puntos": [
+      "Sección nueva **Publicidad**, con lo mismo que tiene la herramienta argentina: cómo va cada campaña, qué haría con cada anuncio según las reglas, y los topes editables.",
+      "**Hoy la cuenta no tiene ninguna campaña**, así que la sección se ve vacía. Está portada para que esté lista el día que prendas la primera desde el panel de MercadoLibre.",
+      "Los topes de las reglas **no están calibrados contra esta cuenta** — no hay gasto con qué hacerlo. Son los de Argentina; el único que estaba en pesos bajó de \\$5.000 a \\$500, que acá son ~1,4 tickets promedio.",
+      "Apagar publicidad **no se puede por la API**: MercadoLibre no la habilita para la aplicación. Se hace por el panel interno con una cookie de sesión, que va en los secrets. Sin esa cookie todo simula y no apaga nada.",
+      "El workflow que apaga lo que no rinde quedó **sin horario automático**: correrlo cada semana sobre una cuenta sin campañas sería gastar minutos para no encontrar nada. Se activa cuando haya."
+    ]
+  },
+  {
+    "fecha": "2026-08-05",
     "hora": "14:10",
     "titulo": "Subir al piso las que están por debajo",
     "tipo": "nuevo",

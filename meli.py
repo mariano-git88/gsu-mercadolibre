@@ -170,11 +170,18 @@ class Meli:
 
     # ------------------------------------------------------------------ llamadas
 
-    def get(self, path, **params):
-        """GET a la API. `path` arranca con / (ej: '/users/me')."""
-        return self._request("GET", path, params=params)
+    def get(self, path, _headers=None, **params):
+        """
+        GET a la API. `path` arranca con / (ej: '/users/me').
 
-    def put(self, path, payload):
+        `_headers` agrega headers a la llamada. Va con guion bajo adelante
+        para no chocar con un parametro de query que se llame igual. Lo usa
+        Product Ads, que exige `Api-Version: 2` y sin eso contesta 404 o un
+        500 con "Type mismatch" que no dice nada.
+        """
+        return self._request("GET", path, params=params, headers=_headers)
+
+    def put(self, path, payload, _headers=None):
         """
         PUT a la API. Se usa para modificar publicaciones.
 
@@ -182,23 +189,24 @@ class Meli:
         (que publicacion tocar, con que valor) va en los modulos de arriba;
         aca solo mandamos el cambio y registramos que paso.
         """
-        return self._request("PUT", path, json_body=payload)
+        return self._request("PUT", path, json_body=payload, headers=_headers)
 
-    def post(self, path, payload=None, **params):
+    def post(self, path, payload=None, _headers=None, **params):
         """
         POST a la API. Se usa para sumar publicaciones a una promocion.
 
         Igual que `put`: esto escribe en la cuenta de verdad. La logica de que
         publicacion tocar vive en los modulos de arriba.
         """
-        return self._request("POST", path, params=params, json_body=payload)
+        return self._request("POST", path, params=params, json_body=payload,
+                             headers=_headers)
 
-    def delete(self, path, **params):
+    def delete(self, path, _headers=None, **params):
         """DELETE a la API. Saca una publicacion de una promocion."""
-        return self._request("DELETE", path, params=params)
+        return self._request("DELETE", path, params=params, headers=_headers)
 
     def _request(self, metodo, path, params=None, json_body=None, intentos=5,
-                 intentos_429=8):
+                 intentos_429=8, headers=None):
         """
         Los 429 tienen su propio presupuesto de reintentos, aparte de
         `intentos`. En una carga masiva (miles de llamadas seguidas) ML corta
@@ -211,11 +219,14 @@ class Meli:
         vistos_429 = 0
 
         for intento in range(1, intentos + intentos_429 + 1):
+            cabeceras = {"Authorization": f"Bearer {self.token}",
+                         "Accept": "application/json",
+                         "Content-Type": "application/json"}
+            if headers:
+                cabeceras.update(headers)
             resp = self.sesion.request(
                 metodo, url,
-                headers={"Authorization": f"Bearer {self.token}",
-                         "Accept": "application/json",
-                         "Content-Type": "application/json"},
+                headers=cabeceras,
                 params=params,
                 json=json_body,
                 timeout=60,

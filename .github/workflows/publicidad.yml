@@ -1,0 +1,65 @@
+name: Apagar publicidad que no rinde
+
+# **Sin cron a propósito.** La cuenta uruguaya tiene un anunciante y CERO
+# campañas (medido el 05/08/2026: `campaigns/search` da 404
+# advertiser_campaigns_not_found y `ads/search` devuelve 0 resultados), así
+# que una corrida semanal gastaría minutos de Actions para no encontrar nada.
+#
+# Cuando se prenda la primera campaña, descomentar el `schedule` de abajo.
+# En Argentina corre los martes a las 9 (12 UTC), semanal y no diario porque
+# las métricas se miden sobre 30 días y no se mueven de un día para el otro.
+on:
+  # schedule:
+  #   - cron: '0 12 * * 2'
+  workflow_dispatch:
+    inputs:
+      aplicar:
+        description: 'Apagar de verdad (si está en false, solo simula)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: publicidad
+  cancel-in-progress: false
+
+jobs:
+  apagar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Escribir los secrets
+        env:
+          SECRETS_TOML: ${{ secrets.GSU_ML_SECRETS_TOML }}
+        run: |
+          if [ -z "$SECRETS_TOML" ]; then
+            echo "Falta el secret GSU_ML_SECRETS_TOML."; exit 1
+          fi
+          mkdir -p .streamlit
+          printf '%s' "$SECRETS_TOML" > .streamlit/secrets.toml
+          # La escritura de publicidad va por el panel, no por la API: sin
+          # [ads] ssid la corrida simula y no apaga nada. Se avisa acá para
+          # que no parezca que anduvo bien.
+          grep -q '^\[ads\]' .streamlit/secrets.toml || \
+            echo "::warning::No hay sección [ads] en los secrets: sin la cookie ssid no se puede apagar nada."
+
+      # El disparo a mano respeta el input. Cuando se active el cron, la
+      # rama del schedule aplica sola, como en Argentina.
+      - name: Apagar lo que no se banca
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || \
+             [ "${{ inputs.aplicar }}" = "true" ]; then
+            python publicidad_cron.py --aplicar
+          else
+            python publicidad_cron.py
+          fi
+
+      - name: Limpiar credenciales
+        if: always()
+        run: rm -f .streamlit/secrets.toml
