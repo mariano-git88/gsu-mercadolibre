@@ -329,6 +329,16 @@ campaña por API contesta el mismo `401`. O sea que no es de la cuenta argentina
 ni de un anunciante en particular — la aplicación no tiene escritura de Product
 Ads en ningún sitio.
 
+**El orden encadena y está medido.** Sin campañas, MercadoLibre no genera los
+anuncios: `ads/{item_id}` contesta `404 Ads not found` para las 23 candidatas.
+Y sin anuncio no hay `ad_group_id`, que es lo único con lo que se puede sumar
+una publicación a una campaña. Así que primero va la campaña, después aparecen
+los anuncios, y recién ahí se asignan.
+
+La cookie del panel es **por cuenta y por país**: la de Argentina lleva el
+user_id argentino adentro y contra `ads.mercadolibre.com.uy` redirige al login.
+Para Uruguay hace falta la sesión de la cuenta uruguaya.
+
 Consecuencia práctica: **la campaña se crea desde el panel web**, a mano.
 `publicidad.crear_campana()` queda igual, por si ML habilita la escritura algún
 día, pero hoy devuelve `(False, "401 ...")`. Los anuncios se agregan después

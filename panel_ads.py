@@ -53,10 +53,7 @@ from meli import Meli, SITE_ID
 DIR = Path(__file__).resolve().parent
 SESION = DIR / "sesion_ads.json"
 
-# El panel vive en un dominio por pais. Se deriva del sitio configurado en
-# meli.py para que no haya que tocarlo si algun dia se apunta a otro.
-# Verificado el 05/08/2026: los dos dominios uruguayos existen y contestan
-# 403 sin sesion, que es lo esperado.
+# El panel vive en un dominio por pais; se deriva del sitio de meli.py.
 DOMINIO = {"MLA": "com.ar", "MLU": "com.uy", "MLB": "com.br",
            "MLC": "cl", "MLM": "com.mx"}.get(SITE_ID, "com")
 
@@ -237,6 +234,40 @@ def campana(sesion, advertiser_id, campaign_id, cambios):
     if r.status_code >= 400:
         return False, f"HTTP {r.status_code}: {r.text[:150]}"
     return True, r.text[:200]
+
+
+def crear_campana(sesion, advertiser_id, nombre, presupuesto, acos_objetivo,
+                  estado="paused", strategy="profitability"):
+    """
+    Crea una campana. Devuelve (ok, id_o_detalle).
+
+    **Nace pausada salvo que se pida lo contrario**: una campana con
+    presupuesto empieza a gastar apenas se activa, y eso es una decision
+    aparte de crearla.
+
+    Va por el mismo servicio que el alta de anuncios
+    (`admin-growth-campaigns`), no por `admin-pads`. Si falta un campo, la API
+    contesta **400 con la lista de los que faltan** — no hay que adivinar
+    ninguno.
+
+    Ojo con el objetivo: aca el campo es `acosTarget`, pero **al modificar una
+    campana existente es `roasTarget`**. No son consistentes entre si.
+    """
+    import requests
+    url = (f"{BASE_PANEL}/pa/api/admin-growth-campaigns/rest/campaigns/"
+           f"{SITIO}/{advertiser_id}")
+    cuerpo = {"name": nombre, "budget": float(presupuesto),
+              "status": estado, "strategy": str(strategy).lower(),
+              "acosTarget": float(acos_objetivo), "acosTopSearchTarget": 0,
+              "automaticBudget": False, "channel": "marketplace"}
+    try:
+        r = requests.post(url, headers=_headers(sesion, advertiser_id, ""),
+                          json=cuerpo, timeout=90)
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    if r.status_code >= 400:
+        return False, f"HTTP {r.status_code}: {r.text[:250]}"
+    return True, (r.json() or {}).get("id")
 
 
 def estado_real(ml, ad_group_id):

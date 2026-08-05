@@ -16,6 +16,22 @@ reglas no estan calibrados contra datos de esta cuenta** —no hay con que—:
 son los de Argentina, con el unico valor en pesos bajado a la escala local.
 Cuando haya un mes de gasto real, revisarlos.
 
+**El orden no es negociable, y esta medido (05/08/2026).** Las tres cosas
+encadenan:
+
+  1. `campaigns/search` -> 404 `advertiser_campaigns_not_found`: no hay campañas.
+  2. `ads/search` -> 0 resultados, y `ads/{item_id}` -> 404 "Ads not found"
+     para las 23 candidatas. **Sin campañas, ML no genera los anuncios**, asi
+     que no existe el `ad_group_id`, que es lo unico con lo que se puede
+     agregar una publicacion a una campana.
+  3. Crear la campana por API -> **401 "User does not have permission to
+     write"**, el mismo error que en Argentina.
+
+O sea: **la primera campana se crea a mano desde el panel**. Recien despues ML
+genera los anuncios en estado `idle` y `resolver_candidatos()` puede
+completarlos con su `ad_group_id`. Antes de eso no hay nada que asignar, por
+mas cookie que se tenga.
+
 **Es solo lectura hasta que se llama `aplicar()`.** `analizar()` propone y
 explica; `aplicar()` escribe.
 
@@ -55,16 +71,23 @@ COLUMNAS_ESTRATEGICOS = ["sku", "nota"]
 # Los topes viven en la Sheet, no en un archivo: en Streamlit Cloud el disco
 # es efimero y cualquier cambio se perderia en el proximo deploy.
 POR_DEFECTO = {
-    "acos_max": 35.0,        # arriba de esto el anuncio no se banca
+    "acos_max": 15.0,        # arriba de esto el anuncio no se banca
     "roas_min": 2.5,         # abajo de esto tampoco
     "acos_bueno": 15.0,      # candidato a empujar
     "roas_bueno": 6.0,
     "clicks_minimos": 30,    # menos que esto es ruido, no una senal
     # El unico umbral que estaba en pesos argentinos. En Uruguay el ticket
     # promedio es $1.223, asi que $5.000 dejaba afuera practicamente todo.
-    # $500 son ~1,4 tickets: es el piso para que el dato diga algo.
-    # **Sin calibrar contra gasto real**, porque todavia no hay.
+    # $500 son ~1,4 tickets. **Sin calibrar contra gasto real**: no hay.
     "gasto_minimo": 500.0,
+
+    # Campana a la que van los candidatos cuya campana natural esta pausada.
+    # Sumar un anuncio a una campana pausada no sirve —entra activo pero la
+    # campana no corre— y prender la general de Crafters encenderia sus 4.557
+    # anuncios de una. Por eso van a una campana propia. 0 = sin destino, y
+    # ahi los candidatos de campanas dormidas quedan afuera.
+    "campana_nuevos": 358677871.0,
+    "anunciante_nuevos": 872.0,
 }
 
 
@@ -126,11 +149,10 @@ def campanas(ml, advertiser_id):
     """
     Las campañas del anunciante, o lista vacia si todavia no tiene ninguna.
 
-    **Un anunciante sin campañas no es un error**, y ML lo contesta como si lo
-    fuera: `404 advertiser_campaigns_not_found`. Es la situacion normal de una
-    cuenta que todavia no arranco con publicidad —hoy, la uruguaya— y dejar
-    que ese 404 se propague tumbaba la seccion entera con un traceback en vez
-    de decir "no hay campañas".
+    **Un anunciante sin campañas no es un error**, y ML lo contesta como si
+    lo fuera: `404 advertiser_campaigns_not_found`. Es la situacion normal
+    de una cuenta que todavia no arranco —hoy, la uruguaya— y dejar que ese
+    404 se propague tumbaba la seccion entera con un traceback.
     """
     base = BASE.format(site=SITE_ID, adv=advertiser_id)
     try:
@@ -448,15 +470,12 @@ def mapa_de_campanas(advs, camps_por_adv):
 
     Aprenderlo de los anuncios parece mas elegante y esta mal: una campana
     contiene publicaciones de varias marcas, asi que "la campana mas frecuente
-    para la marca X" termina mandando productos de una marca a la campana de
-    otra. Con presupuestos separados por marca, eso es gastar del bolsillo
-    equivocado. Se vio en la primera prueba, en Argentina.
+    para la marca X" termina mandando productos Suprabond a la campana de
+    Bulit. Con presupuestos separados por marca, eso es gastar del bolsillo
+    equivocado. Se vio en la primera prueba.
 
-    **En Uruguay hay un solo anunciante y ninguna campana**, asi que esto
-    devuelve vacio hasta que se cree la primera. La logica se deja igual a
-    proposito: si algun dia se abren anunciantes por marca, ya funciona, y
-    mientras tanto todo cae en la campana **general** —la que se llama asi—,
-    que con un anunciante unico es la unica que va a haber.
+    La marca sin anunciante propio (La Gauchita, Sica, Ferrum...) cae en la
+    campana **general**, que es la que se llama asi.
     """
     mapa, general = {}, None
     for a in advs or []:
@@ -500,14 +519,19 @@ def candidatos(df_conv, pubs, df_ads, advs=None, camps_por_adv=None,
         return pd.DataFrame()
 
     # Publicaciones que YA estan gastando: esas no son candidatas.
-    publicitadas = set()
+    publicitadas, bloqueados, grupo_de = set(), set(), {}
     if df_ads is not None and len(df_ads):
         publicitadas = set(df_ads[~df_ads["estado_ad"].isin(NO_PUBLICITA)]
                            ["item_id"])
         # `hold` lo deshabilito ML: no se puede agregar a ninguna campana.
         bloqueados = set(df_ads[df_ads["estado_ad"] == "hold"]["item_id"])
-    else:
-        bloqueados = set()
+        # **Se agrega por ad_group_id, no por item_id.** Una publicacion que
+        # nunca estuvo en una campana no tiene ad_group y no se puede sumar
+        # por esta via: queda afuera en vez de fallar en la escritura.
+        if "ad_group_id" in df_ads:
+            grupo_de = {r["item_id"]: r["ad_group_id"]
+                        for _, r in df_ads.iterrows()
+                        if pd.notna(r.get("ad_group_id"))}
 
     filas = []
     for _, r in df_conv.iterrows():
@@ -536,13 +560,22 @@ def candidatos(df_conv, pubs, df_ads, advs=None, camps_por_adv=None,
         destino = destino or general
         if not destino:
             continue
+
+        # Si la campana que le toca esta dormida, va a la campana propia:
+        # sumarle anuncios a una pausada no los hace correr, y prenderla
+        # encenderia todo lo que ya tiene adentro.
         estado_camp = estados_camp.get(destino[1], "")
+        if estado_camp != "active" and cfg.get("campana_nuevos"):
+            destino = (int(cfg.get("anunciante_nuevos") or destino[0]),
+                       int(cfg["campana_nuevos"]))
+            estado_camp = estados_camp.get(destino[1], "active")
 
         filas.append({
             "item_id": item, "sku": sku,
             "titulo": (r.get("titulo") or "")[:60],
             "marca": marca,
             "advertiser_id": destino[0], "campaign_id": destino[1],
+            "ad_group_id": grupo_de.get(item),
             "campana_activa": estado_camp == "active",
             "estado_ad": "sin anuncio",
             "visitas": r.get("visitas", 0),
@@ -556,6 +589,59 @@ def candidatos(df_conv, pubs, df_ads, advs=None, camps_por_adv=None,
                        f"{int(r.get('visitas') or 0)} visitas"),
         })
 
+    return pd.DataFrame(filas)
+
+
+def resolver_candidatos(ml, cand, estados_camp=None, callback=None):
+    """
+    Completa cada candidato con su anuncio **en vivo** y decide que hacer.
+
+    Hace falta porque `ads/search` **no devuelve los anuncios sin actividad en
+    la ventana**: los 51 candidatos aparecian sin `ad_group_id` como si nunca
+    hubieran tenido anuncio, y `ads/{item_id}` los devuelve a todos. Sin este
+    paso no se podria sumar ninguno — el endpoint de alta exige el id numerico
+    del ad_group y rechaza el de la publicacion.
+
+    Segun como este el anuncio, la accion cambia:
+
+      - `idle` (fuera de toda campana) -> **agregar** a la campana destino
+      - `paused` dentro de una campana -> **activar**, que ya esta donde va
+      - cualquier otra cosa            -> se descarta con el motivo
+    """
+    if cand is None or not len(cand):
+        return cand
+    filas = []
+    for i, (_, r) in enumerate(cand.iterrows(), start=1):
+        if callback and i % 10 == 0:
+            callback(f"Resolviendo anuncios... {i}/{len(cand)}")
+        ad = leer_ad(ml, r["item_id"])
+        f = dict(r)
+        if not ad or not ad.get("ad_group_id"):
+            f.update(accion="ninguna", motivo="no tiene anuncio en ML")
+            filas.append(f)
+            continue
+        estado = (ad.get("status") or "").lower()
+        f["ad_group_id"] = ad["ad_group_id"]
+        if estado == "idle":
+            f["accion"] = "agregar"
+        elif estado == "paused":
+            suya = ad.get("campaign_id")
+            viva = (estados_camp or {}).get(suya) == "active"
+            if suya and viva:
+                # Ya esta donde va: prenderlo alcanza, y ademas respeta la
+                # campana que le asigno ML en vez de mudarlo.
+                f["accion"] = "activar"
+                f["campaign_id"] = suya
+                f["advertiser_id"] = ad.get("advertiser_id") or f["advertiser_id"]
+            else:
+                # Esta apagado dentro de una campana **dormida**: prenderlo
+                # ahi no lo hace correr. Se muda al destino, que ya viene
+                # elegido y esta activo.
+                f["accion"] = "agregar"
+        else:
+            f.update(accion="ninguna",
+                     motivo=f"el anuncio está {estado}, no se puede sumar")
+        filas.append(f)
     return pd.DataFrame(filas)
 
 
@@ -658,21 +744,11 @@ def aplicar(ml, plan, operador="", callback=None, acciones=("pausar",)):
         PUT .../product_ads/campaigns/{id}      -> 401 "User does not have
         PUT .../product_ads/ad_groups/{id}         permission to write."
 
-    En Argentina no es de la cuenta ni de los scopes: falla igual con dos
-    tokens distintos, los dos con `urn:ml:mktp:ads:/read-write` concedido y
-    con la app aprobada entera en el devcenter. Falta que ML habilite la
-    escritura de Product Ads para la aplicacion; se arregla del lado de ML.
-
-    **En Uruguay pasa lo mismo, verificado el 05/08/2026.** Intentar crear la
-    primera campana por API contesta el mismo 401:
-
-        POST .../advertisers/72307/product_ads/campaigns
-        -> 401 "User does not have permission to write."
-
-    O sea que no es de la cuenta argentina ni de ese anunciante: la
-    aplicacion no tiene escritura de Product Ads en ningun sitio. **La campana
-    hay que crearla desde el panel web** y los anuncios se agregan con
-    `panel_ads.py`, que usa la cookie de sesion.
+    No es de la cuenta ni de los scopes: falla igual con el token de
+    CRAFTERSARG y con el de **ERPA SA**, que es la duena de los tres
+    anunciantes, los dos con `urn:ml:mktp:ads:/read-write` concedido y con la
+    app aprobada entera en el devcenter. Falta que ML habilite la escritura de
+    Product Ads para la aplicacion. Se arregla del lado de ML, no del codigo.
     """
     if plan is None or not len(plan):
         return pd.DataFrame()
@@ -725,8 +801,9 @@ def acos_a_roas(acos_pct):
     **Desde diciembre de 2025 el objetivo se escribe como `roas_target`, no
     como `acos_target`.** Son la misma cosa dada vuelta: ACOS = 100 / ROAS.
 
-    Un ACOS objetivo de 23% es un ROAS de 4,35. Verificado contra las campanas
-    argentinas, donde los dos numeros que devuelve la API coinciden.
+    Un ACOS objetivo de 23% es un ROAS de 4,35 — que es exactamente lo que
+    tienen configuradas Bulit y Suprabond, y por eso los dos numeros que
+    devuelve la API coinciden.
     """
     return round(100.0 / float(acos_pct), 4) if acos_pct else 0.0
 
