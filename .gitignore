@@ -1,6 +1,9 @@
 # Credenciales — NUNCA subir
 credentials.txt
 sesion_ads.json
+# Un HAR es un volcado COMPLETO de la sesion del navegador: todas las
+# cookies y todos los headers. Nunca va a un repo, y menos a uno publico.
+*.har
 tokens.json
 tokens.json.tmp
 .streamlit/secrets.toml
