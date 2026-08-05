@@ -324,8 +324,15 @@ write` aun con `urn:ml:mktp:ads:/read-write` concedido. `panel_ads.py` usa el
 endpoint interno del panel con la cookie `ssid`, que va en los secrets bajo
 `[ads]`. Sin esa sección, todo simula y no apaga nada.
 
-En Uruguay eso **no se pudo verificar**: sin una sola campaña no hay nada que
-escribir. Cuando exista la primera, probarlo antes de confiar en el botón.
+En Uruguay pasa lo mismo, **verificado el 05/08/2026**: crear la primera
+campaña por API contesta el mismo `401`. O sea que no es de la cuenta argentina
+ni de un anunciante en particular — la aplicación no tiene escritura de Product
+Ads en ningún sitio.
+
+Consecuencia práctica: **la campaña se crea desde el panel web**, a mano.
+`publicidad.crear_campana()` queda igual, por si ML habilita la escritura algún
+día, pero hoy devuelve `(False, "401 ...")`. Los anuncios se agregan después
+con `panel_ads.py`, que necesita la cookie `ssid` en `[ads]`.
 
 ---
 

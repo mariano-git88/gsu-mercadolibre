@@ -1,6 +1,18 @@
 [
   {
     "fecha": "2026-08-05",
+    "hora": "18:30",
+    "titulo": "Publicidad: la campaña hay que crearla a mano",
+    "tipo": "arreglo",
+    "puntos": [
+      "Se intentó crear la primera campaña por la API y **MercadoLibre no deja**: contesta `401 User does not have permission to write`, el mismo error que en Argentina. O sea que no es de una cuenta ni de un anunciante — la aplicación no tiene permiso de escritura de publicidad en ningún país.",
+      "**La campaña se crea desde el panel de MercadoLibre**, a mano. La herramienta la va a ver sola apenas exista.",
+      "Los anuncios sí se pueden agregar después, pero por el panel interno con la cookie de sesión (`[ads] ssid` en los secrets), no por la API.",
+      "Quedan **23 publicaciones candidatas** por la regla de visitas vs ventas: 5 que convierten muy por encima del promedio y 18 que venden con muy pocas visitas."
+    ]
+  },
+  {
+    "fecha": "2026-08-05",
     "hora": "16:45",
     "titulo": "Publicidad: portada, y lista para cuando arranque",
     "tipo": "nuevo",

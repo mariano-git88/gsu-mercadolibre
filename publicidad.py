@@ -663,9 +663,16 @@ def aplicar(ml, plan, operador="", callback=None, acciones=("pausar",)):
     con la app aprobada entera en el devcenter. Falta que ML habilite la
     escritura de Product Ads para la aplicacion; se arregla del lado de ML.
 
-    **En Uruguay no se pudo verificar**: sin una sola campana no hay nada que
-    escribir. Cuando exista la primera, probar esto antes de confiar en el
-    boton de aplicar.
+    **En Uruguay pasa lo mismo, verificado el 05/08/2026.** Intentar crear la
+    primera campana por API contesta el mismo 401:
+
+        POST .../advertisers/72307/product_ads/campaigns
+        -> 401 "User does not have permission to write."
+
+    O sea que no es de la cuenta argentina ni de ese anunciante: la
+    aplicacion no tiene escritura de Product Ads en ningun sitio. **La campana
+    hay que crearla desde el panel web** y los anuncios se agregan con
+    `panel_ads.py`, que usa la cookie de sesion.
     """
     if plan is None or not len(plan):
         return pd.DataFrame()
