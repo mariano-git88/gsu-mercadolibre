@@ -50,15 +50,32 @@ DIR = Path(__file__).resolve().parent
 # de cargo fijo, si eso deja mas neto. Mismo criterio que tramos.py.
 MARGEN_CRUCE = 0.08
 
+# Cuanto se acepta BAJARLO para quedar debajo de $1.000 y sacarse de encima el
+# envio a cargo del vendedor. Se permite mas margen que para subir, porque
+# bajar el precio ademas deberia ayudar al volumen.
+MARGEN_BAJADA = 0.12
+
 
 def _neto_por_unidad(precio, pct, envio, costo, iva, otros):
-    """Lo que queda por unidad a un precio dado, despues de todo."""
+    """
+    Lo que queda por unidad a un precio dado, despues de todo.
+
+    `envio` es el promedio historico del SKU, y **no se usa tal cual**: pasa
+    por `tramos.envio_a_cargo()`, que decide si a ESE precio el envio lo paga
+    el vendedor. Desde $1.000 lo paga el vendedor; debajo, el comprador.
+
+    Usarlo tal cual era el bug que hacia mirar el escalon al reves: un
+    producto que hoy vende debajo de $1.000 tiene promedio de envio ~0, y al
+    evaluarlo por encima del umbral se seguia calculando con cero, justo
+    cuando el envio aparece.
+    """
     from rentabilidad import otros_conceptos_monto
-    from tramos import cargo_fijo
+    from tramos import cargo_fijo, envio_a_cargo
 
     ingreso = precio / (1 + iva)
     _, otros_monto = otros_conceptos_monto(ingreso, otros)
-    return ingreso - otros_monto - precio * pct - cargo_fijo(precio) - envio - costo
+    return (ingreso - otros_monto - precio * pct - cargo_fijo(precio)
+            - envio_a_cargo(precio, envio) - costo)
 
 
 def _mejor_con_escalon(precio, pct, envio, costo, iva, otros,
@@ -69,21 +86,54 @@ def _mejor_con_escalon(precio, pct, envio, costo, iva, otros,
 
     `techo` limita hasta donde se puede llegar (por ejemplo, el precio para
     ganar el Buy Box: no sirve cruzar el escalon si eso te saca de la pagina).
+
+    **Se busca en las dos direcciones.** Mirar solo hacia arriba deja afuera
+    justo la jugada que rinde en Uruguay: quedarse en $999 en vez de cruzar
+    los $1.000, porque de ese lado el envio lo paga el comprador. Un producto
+    a $1.050 baja a $999 —un 5%— y se saca ~$160 de envio de encima resignando
+    $51 de precio. `tramos.py` ya buscaba en los dos sentidos; esta pantalla
+    no, y por eso nunca sugeria una baja.
     """
-    from tramos import TRAMOS
+    from tramos import TRAMOS, cargo_fijo, envio_a_cargo
 
     mejor, neto_mejor = precio, _neto_por_unidad(precio, pct, envio, costo,
                                                  iva, otros)
+
+    # Lo que cobra ML a cada precio, sin contar la comision porcentual: es lo
+    # unico que cambia al cruzar un escalon.
+    coste = lambda x: cargo_fijo(x) + envio_a_cargo(x, envio)
+
+    candidatos = []
+
+    # Hacia arriba: el proximo escalon, **solo si cruzarlo abarata de verdad**
+    # lo que cobra ML. Sin esa condicion cualquier escalon cercano "mejora el
+    # neto", pero solo porque subiste el precio: si el escalon deja pagando
+    # mas, quedarse un peso abajo deja todavia mas plata, y recomendar
+    # cruzarlo seria recomendar la peor de dos subas. Es el mismo filtro que
+    # ya tenia `tramos._candidatos()`; sin el, las dos pantallas se
+    # contradecian sobre la misma publicacion.
     for tope, _ in TRAMOS:
         if tope == float("inf") or tope <= precio:
             continue
-        if tope > precio * (1 + margen_cruce):
-            break
-        if techo is not None and tope > techo:
-            break
-        neto = _neto_por_unidad(tope, pct, envio, costo, iva, otros)
+        if (tope <= precio * (1 + margen_cruce)
+                and (techo is None or tope <= techo)
+                and coste(float(tope)) < coste(precio)):
+            candidatos.append(float(tope))
+        break
+
+    # Hacia abajo: el ultimo peso antes del escalon que ya cruzo. Es la salida
+    # de los que estan apenas arriba de $1.000 pagando el envio.
+    bordes = [t for t, _ in TRAMOS if t != float("inf") and t <= precio]
+    if bordes:
+        abajo = float(max(bordes)) - 1.0
+        if abajo >= precio * (1 - MARGEN_BAJADA):
+            candidatos.append(abajo)
+
+    for c in candidatos:
+        neto = _neto_por_unidad(c, pct, envio, costo, iva, otros)
         if neto > neto_mejor:
-            mejor, neto_mejor = float(tope), neto
+            mejor, neto_mejor = c, neto
+
     return mejor
 
 

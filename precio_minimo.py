@@ -25,7 +25,8 @@ empujarlo por encima de esa linea.
 
 La cuenta, con el ingreso ya sin IVA:
 
-    margen = ingreso*(1 - otros) - precio*pct - cargo_fijo(precio) - envio - costo
+    margen = ingreso*(1 - otros) - precio*pct - cargo_fijo(precio)
+             - envio_a_cargo(precio) - costo
 
 y se busca el precio mas chico donde `margen >= objetivo * precio`.
 """
@@ -67,6 +68,7 @@ def precio_minimo(costo, pct, envio, iva=0.22, otros=None, objetivo=0.15):
     cierra en su propio tramo.
     """
     from rentabilidad import OTROS_CONCEPTOS, TOPE_LOGISTICO
+    from tramos import envio_a_cargo
 
     o = dict(OTROS_CONCEPTOS)
     if otros:
@@ -89,7 +91,10 @@ def precio_minimo(costo, pct, envio, iva=0.22, otros=None, objetivo=0.15):
         if k <= 0:
             continue
         for desde, hasta, fijo in _bandas():
-            base = fijo + envio + costo + extra
+            # El envio es un escalon del precio, no una constante del
+            # SKU: dentro de una banda de cargo fijo el lado del
+            # umbral ya esta definido, asi que se evalua en `desde`.
+            base = fijo + envio_a_cargo(desde, envio) + costo + extra
             p = base / k
             ingreso = p / (1 + iva)
             # Solo vale si el precio cae en la banda de cargo fijo Y en el
@@ -108,7 +113,9 @@ def precio_minimo(costo, pct, envio, iva=0.22, otros=None, objetivo=0.15):
                                    else (o["impuestos"] + o["general"],
                                          TOPE_LOGISTICO))
                 margen_b = (borde * (1 - tasa_b) / (1 + iva) - borde * pct
-                            - cargo_fijo_de(borde) - envio - costo - extra_b)
+                            - cargo_fijo_de(borde)
+                            - envio_a_cargo(borde, envio)
+                            - costo - extra_b)
                 if margen_b >= objetivo * borde:
                     candidatos.append(borde)
 

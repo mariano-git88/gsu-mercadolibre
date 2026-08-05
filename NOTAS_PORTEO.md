@@ -145,6 +145,24 @@ Corregido en los dos repos: el envío pasa por `tramos.envio_a_cargo()`, que lo
 evalúa al precio candidato, en `precio_minimo.py`, `ventana.py`, `plata.py` y
 `buybox.py`.
 
+> **Esta nota estuvo mal desde el 31/07 hasta el 04/08/2026.** El arreglo se
+> hizo en `tramos.py` y ahí quedó: `envio_a_cargo()` **no se usaba en ningún
+> otro módulo** del repo uruguayo — un `grep envio_a_cargo *.py` devolvía sólo
+> `tramos.py`. O sea que `ventana.py`, `precio_minimo.py` y `buybox.py`
+> siguieron tratando el envío como una constante por SKU durante cuatro días,
+> que es exactamente el bug que la nota daba por resuelto.
+>
+> Se encontró portando el resto de las mejoras, comparando función por función
+> contra el repo argentino. Ahora sí está aplicado en los cuatro, y el
+> comportamiento quedó cubierto por casos de prueba en `test_precios.py`.
+>
+> De paso apareció un segundo agujero en `ventana._mejor_con_escalon()`: sólo
+> buscaba **hacia arriba**, así que en Uruguay no podía sugerir nunca la única
+> jugada que rinde, que es bajar a $999. Y cruzaba a un escalón más caro si el
+> neto mejoraba, sin verificar que el cargo fijo bajara — el bug 1 de acá
+> arriba, que estaba corregido en `tramos.py` pero no en esta pantalla. Las dos
+> se contradecían sobre la misma publicación.
+
 **Rentabilidad nunca estuvo afectada**: mide el envío realmente pagado. El
 error estaba en las proyecciones, no en la medición de lo que ya pasó.
 

@@ -195,7 +195,8 @@ salida están en el `.gitignore` y se regeneran solos.
 | `rentabilidad.py` | Cargos reales por SKU cruzados con costos |
 | `costos_gsu.py` | Costos desde el sistema de Contabilidad |
 | `lista_gsu.py` | Piso de precio de las marcas propias: Costo × 1,85 |
-| `tramos.py` | Optimizador de precios por escalón de comisión **y envío** |
+| `tramos.py` | Optimizador de precios por escalón de comisión **y envío**, y los aplica |
+| `test_precios.py` | Las reglas de precio que no se pueden romper |
 | `precio_minimo.py` | El piso: precio mínimo viable por SKU |
 | `ventana.py` | Piso + Buy Box + escalón en un precio sugerido |
 | `plata.py` | Junta lo accionable ordenado por plata |

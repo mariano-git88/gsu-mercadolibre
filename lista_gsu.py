@@ -205,6 +205,27 @@ def traer_pisos(pubs, refrescar=False):
     return pisos
 
 
+def pisos_por_sku(pubs, refrescar=False):
+    """
+    {SKU: piso} para las pantallas que trabajan por SKU y no por publicacion.
+
+    Plata sobre la mesa y Precios razonan por SKU, porque el precio se aplica
+    a todas las publicaciones del producto. Si dos publicaciones del mismo SKU
+    dieran pisos distintos se toma el mas alto: el piso es un minimo, y
+    quedarse con el menor lo perforaria en la otra.
+    """
+    precios = traer_lista(refrescar=refrescar)
+    if not precios:
+        return {}
+    pisos = {}
+    for p in pubs:
+        sku = str(sku_del_atributo(p) or "").strip().upper()
+        piso = piso_de(sku, marca_de(p), precios)
+        if piso and piso > pisos.get(sku, 0):
+            pisos[sku] = piso
+    return pisos
+
+
 def cobertura(pubs, refrescar=False):
     """Cuantas publicaciones tienen regla, cuantas cruzan y cuantas la violan."""
     precios = traer_lista(refrescar=refrescar)

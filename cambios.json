@@ -1,5 +1,20 @@
 [
   {
+    "fecha": "2026-08-05",
+    "hora": "11:30",
+    "titulo": "El envío estaba mal calculado en tres pantallas",
+    "tipo": "arreglo",
+    "puntos": [
+      "**Precio óptimo, Precio mínimo y Ganar la venta calculaban el envío como un promedio fijo del producto**, en vez de mirar si a ese precio lo paga el comprador o vos. Se creía corregido desde el 31/07 y estaba aplicado en una sola pantalla de cuatro.",
+      "Qué cambia en la práctica: **Precio óptimo nunca podía sugerir bajar a \\$999**, que es justo la jugada que rinde en Uruguay. Ahora sí. Hay 14 publicaciones apenas arriba de \\$1.000 que entran en ese caso.",
+      "También dejó de sugerir cruzar hacia un escalón **más caro**: pasar de \\$700 a \\$750 sube el cargo fijo de \\$25 a \\$40, y quedarse deja más plata. Tramos ya lo sabía y Precio óptimo no: las dos pantallas se contradecían sobre la misma publicación.",
+      "**Ahora se pueden aplicar los precios directamente desde Precio óptimo y desde Plata sobre la mesa**, sin bajar un CSV y volver a subirlo en Precios.",
+      "Antes de escribir, Precio óptimo **vuelve a leer el precio actual de cada publicación**: el análisis sale del catálogo cacheado y si un precio se movió, la sugerencia ya no sirve. Las que cambiaron se recalculan y se avisan.",
+      "En las que cruzan los \\$1.000 hacia abajo, después de aplicar se verifica el envío. Si MercadoLibre no se lo sacó de encima al vendedor, **esa publicación se revierte sola**.",
+      "Se agregó `test_precios.py` con las reglas que no se pueden romper, incluida una que lee el código para verificar que el envío pase por donde tiene que pasar. Es la que hubiera atrapado este error."
+    ]
+  },
+  {
     "fecha": "2026-08-04",
     "hora": "17:20",
     "titulo": "Piso de marca, y elegir a mano en Ganar la venta",

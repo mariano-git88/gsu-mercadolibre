@@ -172,6 +172,8 @@ def analizar(ml, pubs=None, tope=None, cargos=None, unidades=None,
     datos = traer_price_to_win(ml, [p["id"] for p in cat],
                                refrescar=refrescar, callback=callback)
 
+    from tramos import envio_a_cargo
+
     # Cargos por SKU para saber que queda al precio para ganar.
     tasa_comision, envio_fijo = {}, {}
     if cargos is not None and len(cargos):
@@ -201,7 +203,8 @@ def analizar(ml, pubs=None, tope=None, cargos=None, unidades=None,
 
         queda = None
         if ptw is not None and sku in envio_fijo:
-            queda = ptw * (1 - tasa_comision.get(sku, 0.0)) - envio_fijo[sku]
+            queda = (ptw * (1 - tasa_comision.get(sku, 0.0))
+                     - envio_a_cargo(ptw, envio_fijo[sku]))
 
         piso_marca = (pisos or {}).get(p["id"])
 
@@ -299,7 +302,7 @@ def con_costos(df, costos_df, cargos_df, iva=0.0, margen_minimo=0.0,
        los costos de estructura aprobaria bajas que Rentabilidad marca como
        perdida.
     """
-    from tramos import cargo_fijo
+    from tramos import cargo_fijo, envio_a_cargo
     from rentabilidad import OTROS_CONCEPTOS, otros_conceptos_monto
 
     otros = dict(OTROS_CONCEPTOS)
@@ -334,7 +337,12 @@ def con_costos(df, costos_df, cargos_df, iva=0.0, margen_minimo=0.0,
         com = cargos_a(precio, sku)
         ingreso = precio / (1 + iva)
         _, otros_monto = otros_conceptos_monto(ingreso, otros)
-        return ingreso - com - envio.get(sku, 0.0) - costos[sku] - otros_monto
+        # El envio es un escalon del precio, no una constante del SKU:
+        # abajo de $1.000 lo paga el comprador. Usar el promedio
+        # historico tal cual hacia ver como neutro un cambio de precio
+        # que en realidad cruza el umbral del envio.
+        return (ingreso - com - envio_a_cargo(precio, envio.get(sku, 0.0))
+                - costos[sku] - otros_monto)
 
     out = df.copy()
     out["costo"] = out["sku"].map(lambda s: costos.get(s))

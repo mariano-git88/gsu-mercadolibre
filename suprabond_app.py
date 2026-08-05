@@ -325,6 +325,19 @@ def pisos_de_marca(_pubs=None):
     return {k: v for k, v in datos.items() if k != "_error"}
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _pisos_sku_cache(sello):
+    """Igual que el anterior pero por SKU: lo que consumen Plata y Precios."""
+    try:
+        return lista_gsu.pisos_por_sku(pubs)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def pisos_sku_de_marca(_pubs=None):
+    return _pisos_sku_cache(st.session_state.get("sello_catalogo", 0))
+
+
 def aviso_piso_de_marca():
     """Explica el piso una vez, donde se use. Devuelve cuántos lo tienen."""
     datos = _pisos_cache(st.session_state.get("sello_catalogo", 0))
@@ -737,6 +750,109 @@ if seccion == "Plata sobre la mesa":
             "Las estimaciones asumen **el mismo volumen** que el período "
             "medido. Cambiar un precio cambia el volumen, así que son "
             "referencias de tamaño para priorizar, no proyecciones.")
+
+        # ------------------------------------------- ejecutar desde acá
+        #
+        # Solo las que se resuelven cambiando un precio. Reponer stock se hace
+        # comprando mercadería y tomar una promo, desde el panel de ML: esas
+        # se muestran pero no se pueden ejecutar.
+        ejec = plata_mod.ejecutables(dpl, pisos_sku=pisos_sku_de_marca(pubs))
+        if len(ejec):
+            st.divider()
+            st.markdown("##### Aplicar los cambios de precio")
+            aviso_piso_de_marca()
+
+            frenadas_pl = len(plata_mod.ejecutables(dpl)) - len(ejec)
+            if frenadas_pl:
+                st.warning(
+                    f"**{frenadas_pl} quedan afuera por el piso de marca.** El "
+                    "precio que resolvería la pérdida está por debajo de lo "
+                    "que se puede publicar.", icon="🚧")
+
+            st.caption(
+                f"De las {len(dpl)} oportunidades, **{len(ejec)} se resuelven "
+                f"cambiando un precio** y se pueden aplicar desde acá. "
+                "Reponer stock y tomar promociones no: esas se hacen "
+                "comprando mercadería y desde el panel de MercadoLibre.")
+
+            st.dataframe(
+                ejec[["sku", "accion_nombre", "detalle", "precio_actual",
+                      "precio_sugerido", "cambio_pct", "plata_mes"]],
+                use_container_width=True, hide_index=True, height=260,
+                column_config={
+                    "sku": "SKU", "accion_nombre": "Qué hacer",
+                    "detalle": "Detalle",
+                    "precio_actual": st.column_config.NumberColumn(
+                        "Precio hoy", format="%.0f"),
+                    "precio_sugerido": st.column_config.NumberColumn(
+                        "Precio nuevo", format="%.0f"),
+                    "cambio_pct": st.column_config.NumberColumn(
+                        "Cambia", format="percent"),
+                    "plata_mes": st.column_config.NumberColumn(
+                        "Plata por mes", format="%.0f")})
+
+            st.caption(
+                "Se aplica con el mismo motor que la sección **Precios**: "
+                "resuelve a qué publicaciones va cada SKU, marca las "
+                "variaciones grandes y deja el precio anterior en la "
+                "auditoría. Primero se simula.")
+
+            if st.button("Simular estos cambios", key="sim_pl"):
+                try:
+                    st.session_state["sim_plata"] = act.simular(
+                        plata_mod.planilla_de_precios(ejec), pubs, "precio",
+                        "sku", "precio")
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"Error al simular: {e}")
+
+            sim_pl = st.session_state.get("sim_plata")
+            if sim_pl is not None and len(sim_pl):
+                res_pl = act.resumen(sim_pl)
+                s1, s2, s3 = st.columns(3)
+                s1.metric("Se actualizan", res_pl.get("actualizar", 0))
+                s2.metric("Para revisar", res_pl.get("revisar", 0))
+                s3.metric("Sin cambio", res_pl.get("sin_cambio", 0))
+
+                st.dataframe(sim_pl, use_container_width=True, height=260,
+                             hide_index=True)
+
+                a_aplicar_pl = res_pl.get("actualizar", 0)
+                if not a_aplicar_pl:
+                    st.info("No hay nada para aplicar.")
+                else:
+                    st.error(
+                        f"**Esto cambia el precio de {a_aplicar_pl} "
+                        "publicaciones en MercadoLibre de verdad.**",
+                        icon="⚠️")
+                    pl1, pl2 = st.columns([2, 3])
+                    op_pl = pl1.text_input(
+                        "Tu nombre (queda en el registro)", key="op_pl")
+                    conf_pl = pl2.checkbox(
+                        f"Confirmo que quiero cambiar {a_aplicar_pl} precios",
+                        key="conf_pl")
+                    if st.button("Aplicar los precios", key="go_pl",
+                                 disabled=not (conf_pl and op_pl.strip())):
+                        barra_pl = st.progress(0.0, text="Aplicando...")
+                        st.session_state["res_plata"] = act.aplicar(
+                            ml, sim_pl, "precio", operador=op_pl.strip(),
+                            callback=lambda i, t, f: barra_pl.progress(
+                                i / t, text=f"Aplicando {i} de {t}..."))
+                        barra_pl.empty()
+                        st.session_state.pop("plata", None)
+                        st.session_state.pop("sim_plata", None)
+
+            res_pl_final = st.session_state.get("res_plata")
+            if res_pl_final is not None and len(res_pl_final):
+                ok_pl = int((res_pl_final["resultado"] == "OK").sum())
+                if ok_pl == len(res_pl_final):
+                    st.success(f"{ok_pl} precios actualizados.")
+                else:
+                    st.error(f"{ok_pl} aplicados, "
+                             f"{len(res_pl_final) - ok_pl} con error.")
+                st.dataframe(res_pl_final, use_container_width=True,
+                             hide_index=True)
+                st.caption("Volvé a buscar oportunidades para ver el estado "
+                           "nuevo.")
 
 elif seccion == "Reporte semanal":
     st.markdown("#### Cómo vino la semana")
@@ -3172,6 +3288,135 @@ elif seccion == "Oportunidades":
                 "Antes de aplicar: subir un precio puede bajar la conversión. "
                 "Conviene empezar por las que **más ganan por unidad y menos "
                 "suben** — las que ya están cerca del escalón.", icon="💡")
+
+            # ------------------------------------------- aplicar desde acá
+            st.divider()
+            st.markdown("##### Aplicar los precios desde acá")
+            aviso_piso_de_marca()
+            st.caption(
+                "Antes de escribir nada se vuelve a leer el precio actual de "
+                "cada publicación en MercadoLibre. El análisis sale del "
+                "catálogo cacheado, que puede tener días: si un precio se "
+                "movió, la sugerencia de la tabla ya no es la que corresponde.")
+
+            if st.button("Preparar el plan", key="plan_tr"):
+                estado_tr = st.empty()
+                with st.spinner("Releyendo precios en MercadoLibre..."):
+                    st.session_state["plan_tramos"] = tramos.plan(
+                        ml, v, pisos=pisos_de_marca(pubs),
+                        callback=lambda m: estado_tr.caption(str(m)))
+                estado_tr.empty()
+                st.session_state.pop("res_tramos", None)
+
+            plan_tr = st.session_state.get("plan_tramos")
+            if plan_tr is not None and len(plan_tr):
+                van = plan_tr[plan_tr["accion"] == "aplicar"]
+                fuera = plan_tr[plan_tr["accion"] == "omitir"]
+
+                pt1, pt2 = st.columns(2)
+                pt1.metric("Se aplican", len(van))
+                pt2.metric("Quedan afuera", len(fuera))
+
+                if len(fuera):
+                    st.markdown("**Por qué quedan afuera**")
+                    st.dataframe(
+                        fuera[["sku", "titulo", "precio_pantalla",
+                               "precio_actual", "motivo"]],
+                        use_container_width=True, hide_index=True, height=200,
+                        column_config={
+                            "sku": "SKU", "titulo": "Título",
+                            "precio_pantalla": st.column_config.NumberColumn(
+                                "Precio en la tabla", format="%.0f"),
+                            "precio_actual": st.column_config.NumberColumn(
+                                "Precio real ahora", format="%.0f"),
+                            "motivo": "Motivo"})
+
+                if not len(van):
+                    st.info("No queda ninguna para aplicar.")
+                else:
+                    movidas = int((van["precio_pantalla"].round(2)
+                                   != van["precio_actual"].round(2)).sum())
+                    if movidas:
+                        st.warning(
+                            f"**{movidas} publicaciones cambiaron de precio "
+                            "desde que corriste el análisis.** La sugerencia "
+                            "se recalculó sobre el precio de ahora.",
+                            icon="🔄")
+
+                    cruzan = int(van["cruza_umbral"].sum())
+                    if cruzan:
+                        st.caption(
+                            f"{cruzan} cruzan el umbral de \\$1.000 hacia "
+                            "abajo. En esas, después de bajar el precio se "
+                            "vuelve a leer el envío: si MercadoLibre no se lo "
+                            "sacó de encima al vendedor, el cambio deja de "
+                            "convenir y esa publicación se revierte sola.")
+
+                    st.dataframe(
+                        van[["sku", "titulo", "precio_actual", "precio_nuevo",
+                             "cambia_precio", "gana_por_unidad", "vendidos",
+                             "cruza_umbral"]],
+                        use_container_width=True, hide_index=True, height=280,
+                        column_config={
+                            "sku": "SKU", "titulo": "Título",
+                            "precio_actual": st.column_config.NumberColumn(
+                                "Precio hoy", format="%.0f"),
+                            "precio_nuevo": st.column_config.NumberColumn(
+                                "Precio nuevo", format="%.0f"),
+                            "cambia_precio": st.column_config.NumberColumn(
+                                "Cambia", format="percent"),
+                            "gana_por_unidad": st.column_config.NumberColumn(
+                                "Ganás por unidad", format="%.0f"),
+                            "vendidos": "Vendidas",
+                            "cruza_umbral": "Cruza el umbral"})
+
+                    st.error(
+                        "**Esto cambia los precios en MercadoLibre de "
+                        "verdad.** Cada cambio queda en la auditoría con el "
+                        "precio anterior.", icon="⚠️")
+                    ot1, ot2 = st.columns([2, 3])
+                    op_tr = ot1.text_input("Tu nombre (queda en el registro)",
+                                           key="op_tr")
+                    conf_tr = ot2.checkbox(
+                        f"Confirmo que quiero cambiar el precio de {len(van)} "
+                        "publicaciones", key="conf_tr")
+
+                    if st.button("Aplicar los precios", key="go_tr",
+                                 disabled=not (conf_tr and op_tr.strip())):
+                        barra_tr = st.progress(0.0, text="Aplicando...")
+                        st.session_state["res_tramos"] = tramos.aplicar(
+                            ml, plan_tr, operador=op_tr.strip(),
+                            callback=lambda i, t, f: barra_tr.progress(
+                                i / t, text=f"Aplicando {i} de {t}: "
+                                            f"{f['item_id']}"))
+                        barra_tr.empty()
+                        st.session_state.pop("tramos", None)
+                        st.session_state.pop("plan_tramos", None)
+
+            res_tr = st.session_state.get("res_tramos")
+            if res_tr is not None and len(res_tr):
+                ok_tr = int((res_tr["resultado"] == "OK").sum())
+                revertidas = int(res_tr["resultado"].str.startswith(
+                    "REVERTIDA").sum())
+                fallo_vuelta = int((res_tr["resultado"] == "REVERTIR FALLÓ").sum())
+
+                if ok_tr == len(res_tr):
+                    st.success(f"{ok_tr} precios actualizados.")
+                else:
+                    st.error(f"{ok_tr} aplicados de {len(res_tr)}.")
+                if revertidas:
+                    st.warning(
+                        f"**{revertidas} se revirtieron solas**: MercadoLibre "
+                        "no le sacó el envío de encima al vendedor, así que "
+                        "bajar el precio pasaba a costar plata.", icon="↩️")
+                if fallo_vuelta:
+                    st.error(
+                        f"**{fallo_vuelta} quedaron con el precio nuevo y el "
+                        "envío a tu cargo, y la vuelta atrás falló.** Hay que "
+                        "corregirlas a mano — están abajo.", icon="🚨")
+                st.dataframe(res_tr, use_container_width=True, hide_index=True)
+                st.caption("Volvé a analizar el catálogo para ver el estado "
+                           "nuevo.")
 
     else:
         st.caption(

@@ -38,11 +38,18 @@ DIR = Path(__file__).resolve().parent
 # Las unicas dos acciones que se resuelven cambiando un precio, o sea las que
 # la app puede ejecutar sola. Reponer stock se hace comprando; tomar una promo,
 # desde el panel de MercadoLibre.
-ACCIONES_EJECUTABLES = ("revisar_perdida", "subir_escalon")
+ACCIONES_EJECUTABLES = ("revisar_perdida", "correr_escalon")
+
+# Tope duro: desde Plata sobre la mesa no se ejecuta un cambio mas grande.
+# Los casos mas fuertes no desaparecen, se miran de a uno en Precio optimo.
+TECHO_DE_CAMBIO = 0.30
 
 ACCIONES = {
     "reponer": "Reponer stock",
-    "subir_escalon": "Subir al escalón de comisión",
+    # Se llamaba "subir_escalon" y era enganoso: en Uruguay estas
+    # sugerencias son casi todas BAJAS hacia $999, porque cruzar el
+    # umbral hacia arriba activa el envio a cargo del vendedor.
+    "correr_escalon": "Correr el precio al borde del escalón",
     "revisar_perdida": "Revisar: pierde plata",
     "tomar_promo": "Tomar promoción cofinanciada",
 }
@@ -103,7 +110,7 @@ def de_escalon(df_ventana, cambio_max=0.20, unidades_min=3):
     filas = []
     for _, f in sel.iterrows():
         filas.append({
-            "accion": "subir_escalon",
+            "accion": "correr_escalon",
             "sku": f["sku"],
             "titulo": f["titulo"],
             "detalle": (f"${f['precio_actual']:,.0f} → "
@@ -199,7 +206,7 @@ def de_promos(df_promos):
 # que mezcle las dos es un numero lindo y mentiroso.
 UNIDAD = {
     "reponer": "facturación",
-    "subir_escalon": "margen",
+    "correr_escalon": "margen",
     "revisar_perdida": "margen",
     "tomar_promo": "sin cuantificar",
 }
@@ -263,6 +270,56 @@ def juntar(stock=None, ventana=None, rentabilidad=None, promos=None,
 
     df["veces"] = df.groupby("sku")["sku"].transform("size")
     return df.sort_values("plata_mes", ascending=False).reset_index(drop=True)
+
+
+def ejecutables(df, cambio_maximo=TECHO_DE_CAMBIO, acciones=None, items=None,
+                pisos_sku=None):
+    """
+    Las filas a las que se les puede escribir el precio nuevo de una.
+
+    `cambio_maximo` se clampea contra `TECHO_DE_CAMBIO`: desde esta pantalla no
+    se ejecutan cambios mas grandes aunque se pidan. Los casos que quedan
+    afuera **no desaparecen**, se resuelven desde Precio optimo mirandolos de
+    a uno.
+
+    `pisos_sku` es {SKU: piso} de `lista_gsu.pisos_por_sku()`. Un precio
+    sugerido por debajo del piso de marca no se ejecuta desde aca: el piso es
+    una decision comercial y esta pantalla no lo abre.
+    """
+    if df is None or not len(df) or "ejecutable" not in df:
+        return df.iloc[0:0] if df is not None and len(df) else pd.DataFrame()
+
+    tope = min(cambio_maximo, TECHO_DE_CAMBIO)
+    sel = df[df["ejecutable"] & (df["cambio_pct"].abs() <= tope)].copy()
+    if acciones:
+        sel = sel[sel["accion"].isin(acciones)]
+    if items is not None:
+        sel = sel[sel["sku"].isin(list(items))]
+
+    if pisos_sku:
+        piso = sel["sku"].map(pisos_sku)
+        sel = sel[piso.isna() | (sel["precio_sugerido"] >= piso)]
+
+    # Un SKU puede caer en las dos acciones a la vez (pierde plata Y cruza
+    # escalon). Como el precio nuevo sale de la misma ventana, mandarlo dos
+    # veces no cambia nada pero ensucia la planilla: el motor lo marca como
+    # `duplicado_en_planilla`. Se manda una sola, la de mayor impacto.
+    sel = sel.sort_values("plata_mes", ascending=False)
+    return sel.drop_duplicates(subset=["sku"], keep="first")
+
+
+def planilla_de_precios(seleccion):
+    """
+    La planilla que consume `actualizador.simular()`.
+
+    Se reusa ese motor y no se escribe directo: trae el resolver de SKU (que
+    decide a que publicaciones aplicar), el aviso de variaciones mayores al
+    50% y la auditoria con el precio anterior.
+    """
+    return pd.DataFrame({
+        "sku": seleccion["sku"],
+        "precio": seleccion["precio_sugerido"].round(2),
+    })
 
 
 def resumen(df):
