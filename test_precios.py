@@ -186,6 +186,59 @@ def test_piso_de_marca():
              f"accion: {p.iloc[0]['accion'] if len(p) else 'vacio'}")
 
 
+def test_no_pisar_una_promocion_activa():
+    """
+    Subir al piso NO puede tocar una publicacion que esta en promocion: ahi hay
+    un precio que el comprador esta viendo.
+    """
+    import lista_gsu
+
+    print("\nSubir al piso respeta las promociones activas")
+
+    pubs = [
+        {"id": "CON", "status": "active", "price": 100.0, "title": "en promo",
+         "attributes": [{"id": "SELLER_SKU", "value_name": "A"},
+                        {"id": "BRAND", "value_name": "Bulit"}]},
+        {"id": "SIN", "status": "active", "price": 100.0, "title": "libre",
+         "attributes": [{"id": "SELLER_SKU", "value_name": "A"},
+                        {"id": "BRAND", "value_name": "Bulit"}]},
+        {"id": "ROTA", "status": "active", "price": 100.0, "title": "ilegible",
+         "attributes": [{"id": "SELLER_SKU", "value_name": "A"},
+                        {"id": "BRAND", "value_name": "Bulit"}]},
+    ]
+
+    class MLFalso:
+        def items_detalle(self, ids, atributos=None):
+            return [{"id": i, "price": 100.0, "status": "active"} for i in ids]
+
+        def get(self, path, **kw):
+            if path.endswith("/CON"):
+                return [{"type": "SELLER_CAMPAIGN", "name": "Precios Locos",
+                         "status": "started", "price": 70.0}]
+            if path.endswith("/ROTA"):
+                raise RuntimeError("ML no contesto")
+            return [{"type": "DEAL", "name": "otra", "status": "candidate"}]
+
+    original = lista_gsu.traer_lista
+    lista_gsu.traer_lista = lambda refrescar=False: {"A": 100.0}
+    try:
+        plan = lista_gsu.plan_subir_al_piso(MLFalso(), pubs)
+    finally:
+        lista_gsu.traer_lista = original
+
+    por_id = {f["item_id"]: f["accion"] for _, f in plan.iterrows()}
+    chequear(por_id.get("SIN") == "subir",
+             "la que no tiene promo se sube", f"quedo en {por_id.get('SIN')}")
+    chequear(por_id.get("CON") == "omitir_promo",
+             "la que esta en promocion queda afuera",
+             f"quedo en {por_id.get('CON')}")
+    # Si no se pudo leer, se asume que tiene promo: equivocarse para el lado de
+    # no tocarla es barato; para el otro lado es pisar un precio promocional.
+    chequear(por_id.get("ROTA") == "omitir_promo",
+             "si no se pudo leer las promos, no se toca",
+             f"quedo en {por_id.get('ROTA')}")
+
+
 def test_topes_duros():
     import buybox
     import plata
@@ -232,6 +285,7 @@ def main():
     test_no_cruzar_a_un_escalon_mas_caro()
     test_bajar_para_esquivar_el_envio()
     test_piso_de_marca()
+    test_no_pisar_una_promocion_activa()
     test_topes_duros()
     test_marcas_propias()
 

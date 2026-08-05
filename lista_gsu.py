@@ -250,6 +250,200 @@ def cobertura(pubs, refrescar=False):
     }
 
 
+# --------------------------------------------------- subir las que están bajo
+
+# Arriba de esto la suba se marca para mirarla, pero **no se bloquea**: el piso
+# es el piso. Hay publicaciones que estan tan abajo que llegar cuesta +93%.
+SUBA_QUE_LLAMA_LA_ATENCION = 0.30
+
+# Pausa entre publicaciones al escribir en lote: baja los 429 de ML.
+PAUSA_ENTRE_ITEMS = 0.25
+
+CAMPOS_VIVO = ["id", "price", "status"]
+
+
+def promos_activas(ml, item_ids, callback=None):
+    """
+    {item_id: [(tipo, nombre, precio_promo)]} de las que tienen alguna oferta
+    corriendo.
+
+    Se pregunta **publicacion por publicacion** y no recorriendo las campañas,
+    que seria mas rapido, porque hay tipos de oferta que no cuelgan de una
+    campaña (`PRICE_DISCOUNT` viene sin `id`) y por ese camino no se verian.
+    Son ~0,6 s por publicacion.
+    """
+    salida = {}
+    total = len(item_ids)
+    for n, iid in enumerate(item_ids, start=1):
+        try:
+            ofertas = ml.get(f"/seller-promotions/items/{iid}",
+                             app_version="v2")
+        except Exception:  # noqa: BLE001
+            # Si no se pudo leer, se asume que SI tiene promo: equivocarse
+            # para el lado de no tocarla es barato; para el otro lado
+            # significa pisar un precio promocional que el comprador ve.
+            salida[iid] = [("desconocido", "no pude leer las promociones", None)]
+            continue
+        activas = [(o.get("type"), o.get("name") or "", o.get("price"))
+                   for o in (ofertas or []) if o.get("status") == "started"]
+        if activas:
+            salida[iid] = activas
+        if callback and n % 20 == 0:
+            callback(f"Revisando promociones... {n}/{total}")
+    return salida
+
+
+COLUMNAS_PLAN = ["item_id", "sku", "marca", "titulo", "precio_actual",
+                 "precio_pantalla", "piso", "sube", "sube_pct", "accion",
+                 "motivo"]
+
+
+def plan_subir_al_piso(ml, pubs, refrescar=False, callback=None):
+    """
+    Las publicaciones de marca propia que hoy se venden bajo el piso, con el
+    precio nuevo, **salvo las que estan en una promocion activa**.
+
+    Una publicacion en promocion tiene un precio que el comprador esta viendo
+    ahora. Subirle el precio de lista por debajo de esa promo deja la oferta
+    incoherente —y en algunos tipos ML recalcula el descuento sobre el precio
+    nuevo, con lo cual la promo se encarece sola—. Esas se muestran aparte
+    para sacarlas de la campaña primero.
+
+    Como en `tramos.plan()`, **se relee el precio vivo** antes de decidir: el
+    analisis sale de `catalogo.json`, que puede tener dias.
+    """
+    import pandas as pd
+
+    precios = traer_lista(refrescar=refrescar)
+    if not precios:
+        return pd.DataFrame(columns=COLUMNAS_PLAN)
+
+    candidatas = []
+    for p in pubs:
+        if p.get("status") != "active":
+            continue
+        piso = piso_de(sku_del_atributo(p), marca_de(p), precios)
+        if piso and float(p.get("price") or 0) < piso:
+            candidatas.append((p, piso))
+
+    if not candidatas:
+        return pd.DataFrame(columns=COLUMNAS_PLAN)
+
+    ids = [p["id"] for p, _ in candidatas]
+
+    if callback:
+        callback(f"Releyendo el precio de {len(ids)} publicaciones...")
+    vivos = {}
+    try:
+        for pub in ml.items_detalle(ids, atributos=CAMPOS_VIVO):
+            vivos[pub.get("id")] = pub
+    except Exception:  # noqa: BLE001
+        vivos = {}
+
+    con_promo = promos_activas(ml, ids, callback=callback)
+
+    filas = []
+    for p, piso in candidatas:
+        iid = p["id"]
+        vivo = vivos.get(iid)
+        precio = float((vivo or p).get("price") or 0)
+        base = {
+            "item_id": iid,
+            "sku": normalizar(sku_del_atributo(p)),
+            "marca": marca_de(p) or "",
+            "titulo": (p.get("title") or "")[:60],
+            "precio_actual": precio,
+            "precio_pantalla": float(p.get("price") or 0),
+            "piso": piso,
+            "sube": round(piso - precio, 2),
+            "sube_pct": round((piso - precio) / precio, 4) if precio else None,
+        }
+
+        if vivo is not None and vivo.get("status") != "active":
+            filas.append({**base, "accion": "omitir",
+                          "motivo": f"no está activa ({vivo.get('status')})"})
+            continue
+
+        if precio >= piso:
+            filas.append({**base, "accion": "omitir",
+                          "motivo": "al precio de hoy ya está sobre el piso"})
+            continue
+
+        promo = con_promo.get(iid)
+        if promo:
+            nombres = ", ".join(n for _, n, _ in promo if n) or promo[0][0]
+            filas.append({**base, "accion": "omitir_promo",
+                          "motivo": f"tiene una promoción activa: {nombres}"})
+            continue
+
+        filas.append({**base, "accion": "subir",
+                      "motivo": (f"sube {base['sube_pct']:+.0%} para llegar al "
+                                 f"piso de la marca")})
+
+    return pd.DataFrame(filas, columns=COLUMNAS_PLAN)
+
+
+def normalizar(valor):
+    return str(valor or "").strip().upper()
+
+
+def resumen_plan(plan):
+    if plan is None or not len(plan):
+        return {}
+    suben = plan[plan["accion"] == "subir"]
+    return {
+        "candidatas": len(plan),
+        "suben": len(suben),
+        "en_promo": int((plan["accion"] == "omitir_promo").sum()),
+        "omitidas": int((plan["accion"] == "omitir").sum()),
+        "suba_mediana": float(suben["sube_pct"].median()) if len(suben) else 0.0,
+        "suba_maxima": float(suben["sube_pct"].max()) if len(suben) else 0.0,
+        "grandes": int((suben["sube_pct"] > SUBA_QUE_LLAMA_LA_ATENCION).sum()),
+    }
+
+
+def aplicar_subida(ml, plan, operador="", callback=None):
+    """
+    Sube al piso las publicaciones con accion 'subir'.
+
+    **Escribe en la cuenta de verdad.** Se toca la publicacion puntual por
+    `item_id` y no por SKU: dos publicaciones del mismo producto pueden estar
+    a precios distintos y cada una tiene que llegar al piso desde donde esta.
+
+    Una falla no puede matar el lote: cada una va en su propio try.
+    """
+    import time
+
+    import pandas as pd
+
+    pendientes = plan[plan["accion"] == "subir"]
+    nota = f"piso de marca x{MULTIPLICADOR}"
+    filas, total = [], len(pendientes)
+
+    for n, (_, f) in enumerate(pendientes.iterrows(), start=1):
+        nuevo = round(float(f["piso"]), 2)
+        try:
+            ok, detalle = ml.actualizar_publicacion(
+                f["item_id"], {"price": nuevo},
+                valores_previos={"price": f["precio_actual"]},
+                operador=operador, nota=nota)
+        except Exception as e:  # noqa: BLE001
+            ok, detalle = False, f"{type(e).__name__}: {str(e)[:200]}"
+
+        filas.append({
+            "item_id": f["item_id"], "sku": f["sku"], "titulo": f["titulo"],
+            "precio_anterior": f["precio_actual"], "precio_nuevo": nuevo,
+            "sube_pct": f["sube_pct"],
+            "resultado": "OK" if ok else "ERROR",
+            "detalle": "" if ok else str(detalle)[:200],
+        })
+        if callback:
+            callback(n, total, f["item_id"])
+        time.sleep(PAUSA_ENTRE_ITEMS)
+
+    return pd.DataFrame(filas)
+
+
 def main():
     refrescar = "--refrescar" in sys.argv
     if not configurado():

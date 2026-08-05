@@ -1,6 +1,20 @@
 [
   {
     "fecha": "2026-08-05",
+    "hora": "14:10",
+    "titulo": "Subir al piso las que están por debajo",
+    "tipo": "nuevo",
+    "puntos": [
+      "En **Precio óptimo** hay una vista nueva: *Subir al piso de marca*. Lista las publicaciones de Suprabond, Bulit y Somerset que hoy se venden por debajo de Costo × 1,85 y les sube el precio de una.",
+      "**Las que están en una promoción activa quedan afuera**, siempre. Ahí hay un precio que el comprador está viendo: subirle el precio de lista por debajo deja la oferta incoherente, y en algunos tipos MercadoLibre recalcula el descuento sobre el precio nuevo y la promo se encarece sola. Se muestran aparte para que las saques de la campaña primero.",
+      "Hoy son **141 para subir y 23 en promoción** (todas en *Precios Locos 04 08 26*).",
+      "Antes de escribir se **relee el precio de cada publicación**: si alguna ya se movió y quedó sobre el piso, se saltea sola.",
+      "Podés tildar filas para subir solo algunas. La suba mediana es 15% y hay 7 que suben más del 30% — están marcadas, pero no se bloquean: el piso es el piso.",
+      "Si no se puede leer el estado de promociones de una publicación, **no se toca**. Equivocarse para el lado de dejarla quieta es barato; para el otro lado es pisar un precio promocional."
+    ]
+  },
+  {
+    "fecha": "2026-08-05",
     "hora": "11:30",
     "titulo": "El envío estaba mal calculado en tres pantallas",
     "tipo": "arreglo",

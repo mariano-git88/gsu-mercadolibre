@@ -159,6 +159,21 @@ de la regla a propósito.
 Necesita `[contabilium]` en los secrets. Sin eso las pantallas siguen andando
 sin piso.
 
+### Subir las que están por debajo
+
+La vista *Subir al piso de marca* (dentro de **Precio óptimo**) las sube en
+lote. **Las que están en una promoción activa quedan afuera**: ahí hay un
+precio que el comprador está viendo ahora, y subirle el precio de lista por
+debajo deja la oferta incoherente — en algunos tipos ML recalcula el descuento
+sobre el precio nuevo y la promo se encarece sola.
+
+El estado de promociones se pregunta **publicación por publicación** y no
+recorriendo las campañas, que sería más rápido: hay tipos de oferta que no
+cuelgan de una campaña (`PRICE_DISCOUNT` viene sin `id`) y por ese camino no
+se verían. Si una consulta falla, esa publicación **no se toca**.
+
+Como en Tramos, antes de escribir se relee el precio vivo de cada publicación.
+
 ---
 
 ## Uso

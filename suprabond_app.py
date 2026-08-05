@@ -2461,6 +2461,148 @@ elif seccion == "Control de stock":
                 st.error(f"No pude leer la planilla: {e}")
 
 elif seccion == "Precio óptimo":
+    vista_po = st.radio(
+        "Vista", ["Ventana de precio", "Subir al piso de marca"],
+        horizontal=True, label_visibility="collapsed", key="vista_po")
+
+    if vista_po == "Subir al piso de marca":
+        st.markdown("#### Publicaciones por debajo del piso de marca")
+        st.caption(
+            "Suprabond, Bulit y Somerset no se publican por debajo de "
+            f"**{lista_gsu.MULTIPLICADOR} veces el precio de lista de "
+            "Contabilium**. Acá están las que hoy están por debajo, y se les puede "
+            "subir el precio al piso de una.")
+        aviso_piso_de_marca()
+
+        st.info(
+            "**Las que están en una promoción activa quedan afuera.** Ahí hay un "
+            "precio que el comprador está viendo ahora: subirle el precio de lista "
+            "por debajo deja la oferta incoherente, y en algunos tipos "
+            "MercadoLibre recalcula el descuento sobre el precio nuevo y la promo "
+            "se encarece sola. Primero hay que sacarlas de la campaña.", icon="🎟️")
+
+        if st.button("Buscar las que están por debajo"):
+            estado_pf = st.empty()
+            with st.spinner("Releyendo precios y revisando promociones..."):
+                st.session_state["plan_piso"] = lista_gsu.plan_subir_al_piso(
+                    ml, pubs, callback=lambda m: estado_pf.caption(str(m)))
+            estado_pf.empty()
+            st.session_state.pop("res_piso", None)
+
+        plan_pf = st.session_state.get("plan_piso")
+        if plan_pf is not None and len(plan_pf):
+            rpf = lista_gsu.resumen_plan(plan_pf)
+            f1, f2, f3 = st.columns(3)
+            f1.metric("Se suben", rpf["suben"])
+            f2.metric("En promoción", rpf["en_promo"])
+            f3.metric("Suba mediana", f"{rpf['suba_mediana']:.0%}")
+
+            if rpf["grandes"]:
+                st.warning(
+                    f"**{rpf['grandes']} publicaciones suben más del "
+                    f"{lista_gsu.SUBA_QUE_LLAMA_LA_ATENCION:.0%}** — la más fuerte "
+                    f"{rpf['suba_maxima']:.0%}. No se bloquean, el piso es el "
+                    "piso, pero conviene mirarlas: un salto así puede frenar la "
+                    "conversión de golpe.", icon="⚠️")
+
+            if rpf["omitidas"]:
+                st.caption(
+                    f"{rpf['omitidas']} quedaron afuera porque su precio ya se "
+                    "movió desde el último análisis, o la publicación no está "
+                    "activa.")
+
+            suben_pf = plan_pf[plan_pf["accion"] == "subir"]
+            en_promo_pf = plan_pf[plan_pf["accion"] == "omitir_promo"]
+
+            if len(en_promo_pf):
+                with st.expander(f"Las {len(en_promo_pf)} que están en promoción"):
+                    st.dataframe(
+                        en_promo_pf[["item_id", "sku", "titulo", "precio_actual",
+                                     "piso", "motivo"]],
+                        use_container_width=True, hide_index=True, height=240,
+                        column_config={
+                            "item_id": "Publicación", "sku": "SKU",
+                            "titulo": "Título",
+                            "precio_actual": st.column_config.NumberColumn(
+                                "Precio hoy", format="%.0f"),
+                            "piso": st.column_config.NumberColumn(
+                                "Piso", format="%.0f"),
+                            "motivo": "Por qué queda afuera"})
+
+            if not len(suben_pf):
+                st.success("No hay ninguna para subir.")
+            else:
+                st.markdown("##### Las que se van a subir")
+                st.caption(
+                    "**Tildá filas para subir solo algunas.** Si no seleccionás "
+                    "ninguna se suben todas.")
+                ev_pf = st.dataframe(
+                    suben_pf[["item_id", "sku", "marca", "titulo",
+                              "precio_actual", "piso", "sube", "sube_pct"]],
+                    use_container_width=True, height=340, hide_index=True,
+                    key="tabla_piso", on_select="rerun",
+                    selection_mode="multi-row",
+                    column_config={
+                        "item_id": "Publicación", "sku": "SKU", "marca": "Marca",
+                        "titulo": "Título",
+                        "precio_actual": st.column_config.NumberColumn(
+                            "Precio hoy", format="%.0f"),
+                        "piso": st.column_config.NumberColumn(
+                            "Precio nuevo", format="%.0f"),
+                        "sube": st.column_config.NumberColumn(
+                            "Sube", format="%.0f"),
+                        "sube_pct": st.column_config.NumberColumn(
+                            "Sube %", format="percent")})
+
+                elegidas_pf = list(getattr(ev_pf.selection, "rows", []) or [])
+                a_subir = suben_pf.iloc[elegidas_pf] if elegidas_pf else suben_pf
+                if elegidas_pf:
+                    st.info(f"Vas a subir solo las **{len(a_subir)}** que "
+                            "tildaste.", icon="👉")
+
+                st.download_button(
+                    "Descargar el plan",
+                    plan_pf.to_csv(index=False).encode("utf-8"),
+                    f"piso_de_marca_{datetime.now():%Y%m%d_%H%M}.csv", "text/csv",
+                    key="dl_pf")
+
+                st.divider()
+                st.error(
+                    f"**Esto sube el precio de {len(a_subir)} publicaciones en "
+                    "MercadoLibre de verdad.** Cada cambio queda en la auditoría "
+                    "con el precio anterior.", icon="⚠️")
+                pf1, pf2 = st.columns([2, 3])
+                op_pf = pf1.text_input("Tu nombre (queda en el registro)",
+                                       key="op_pf")
+                conf_pf = pf2.checkbox(
+                    f"Confirmo que quiero subir {len(a_subir)} precios al piso",
+                    key="conf_pf")
+
+                if st.button("Subir al piso", key="go_pf",
+                             disabled=not (conf_pf and op_pf.strip())):
+                    barra_pf = st.progress(0.0, text="Subiendo...")
+                    st.session_state["res_piso"] = lista_gsu.aplicar_subida(
+                        ml, a_subir, operador=op_pf.strip(),
+                        callback=lambda i, t, iid: barra_pf.progress(
+                            i / t, text=f"Subiendo {i} de {t}: {iid}"))
+                    barra_pf.empty()
+                    st.session_state.pop("plan_piso", None)
+
+        elif plan_pf is not None:
+            st.success("Ninguna publicación de marca propia está por debajo del "
+                       "piso.")
+
+        res_pf = st.session_state.get("res_piso")
+        if res_pf is not None and len(res_pf):
+            ok_pf = int((res_pf["resultado"] == "OK").sum())
+            if ok_pf == len(res_pf):
+                st.success(f"{ok_pf} precios subidos al piso.")
+            else:
+                st.error(f"{ok_pf} subidos, {len(res_pf) - ok_pf} con error.")
+            st.dataframe(res_pf, use_container_width=True, hide_index=True)
+            st.caption("Volvé a buscar para ver el estado nuevo.")
+        st.stop()
+
     st.markdown("#### Ventana de precio")
     st.caption(
         "Junta las tres cuentas que hasta ahora estaban separadas: el **piso** "
