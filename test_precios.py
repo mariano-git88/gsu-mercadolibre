@@ -239,6 +239,38 @@ def test_no_pisar_una_promocion_activa():
              f"quedo en {por_id.get('ROTA')}")
 
 
+def test_no_arrastrar_companeros_de_ad_group():
+    """
+    Pausar publicidad no puede llevarse puesta una publicacion que si califica.
+
+    La unidad de escritura de ML es el `ad_group_id` y un ad_group puede
+    contener varias publicaciones. Se aprendio equivocandose: se pausaron 19
+    que no calificaban y cayeron 4 que si, por compartir grupo.
+    """
+    import pandas as pd
+
+    import publicidad
+
+    print("\nPausar publicidad no arrastra companeros de ad_group")
+    ads = pd.DataFrame([{"item_id": "A", "ad_group_id": 1},
+                        {"item_id": "B", "ad_group_id": 1},
+                        {"item_id": "C", "ad_group_id": 2}])
+    plan = pd.DataFrame([{"item_id": "A", "ad_group_id": 1, "accion": "pausar"},
+                         {"item_id": "C", "ad_group_id": 2, "accion": "pausar"}])
+    ok, frenados = publicidad.proteger_companeros(plan, ads)
+    chequear(list(ok["item_id"]) == ["C"],
+             "no toca el ad_group donde vive una que hay que dejar",
+             f"iba a pausar {list(ok['item_id'])}")
+    chequear(list(frenados["item_id"]) == ["A"],
+             "y dice cual freno y por que")
+
+    plan2 = pd.concat([plan, pd.DataFrame(
+        [{"item_id": "B", "ad_group_id": 1, "accion": "pausar"}])])
+    ok2, _ = publicidad.proteger_companeros(plan2, ads)
+    chequear(sorted(ok2["item_id"]) == ["A", "B", "C"],
+             "si TODAS las del grupo estan marcadas, si lo toca")
+
+
 def test_topes_duros():
     import buybox
     import plata
@@ -286,6 +318,7 @@ def main():
     test_bajar_para_esquivar_el_envio()
     test_piso_de_marca()
     test_no_pisar_una_promocion_activa()
+    test_no_arrastrar_companeros_de_ad_group()
     test_topes_duros()
     test_marcas_propias()
 

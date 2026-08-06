@@ -1,6 +1,19 @@
 [
   {
     "fecha": "2026-08-05",
+    "hora": "20:45",
+    "titulo": "Publicidad: la campaña quedó con los anuncios que convierten",
+    "tipo": "nuevo",
+    "puntos": [
+      "Se creó la campaña y MercadoLibre **generó 371 anuncios solo**, poniendo 39 en activo sin preguntar. De esos, 20 eran de los que califican por visitas vs ventas y 19 no.",
+      "Quedaron **20 anuncios activos, todos de los que califican**, y 11 pausados que no calificaban.",
+      "**Ojo con una trampa que costó un error:** MercadoLibre no apaga publicaciones, apaga **ad_groups**, y un ad_group puede tener varias publicaciones adentro. Al pausar 19 que no calificaban cayeron además 4 que sí, por compartir grupo. Se revirtieron enseguida.",
+      "Ahora la herramienta no lo permite: **un ad_group se toca sólo si todas sus publicaciones están marcadas para lo mismo**. Si una sola se salva, se salva el grupo. Por eso quedan 8 anuncios activos que no califican: comparten grupo con uno que sí.",
+      "En esta cuenta **44 de 306 ad_groups tienen más de una publicación**, así que no era un caso raro."
+    ]
+  },
+  {
+    "fecha": "2026-08-05",
     "hora": "18:30",
     "titulo": "Publicidad: la campaña hay que crearla a mano",
     "tipo": "arreglo",

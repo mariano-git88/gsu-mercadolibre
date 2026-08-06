@@ -730,6 +730,51 @@ def sacar_de_campana(ml, item_id, ad_group_id=None):
         return False, f"{type(e).__name__}: {str(e)[:180]}"
 
 
+def proteger_companeros(plan, df_ads, accion="pausar"):
+    """
+    Saca del plan los anuncios que **arrastrarian a un companero de ad_group**.
+
+    La unidad de escritura de MercadoLibre es el `ad_group_id`, no la
+    publicacion, y **un ad_group puede contener varias publicaciones**. Pausar
+    uno pausa a todas las que viven adentro.
+
+    Medido el 05/08/2026 en la cuenta uruguaya, a costa de equivocarse: se
+    pausaron 19 anuncios que no calificaban y cayeron ademas **4 que si
+    calificaban**, porque compartian ad_group con alguno de los 19. En esa
+    cuenta **44 de 306 ad_groups tienen mas de una publicacion**, asi que no
+    es un caso raro.
+
+    La regla que queda: **un ad_group se toca solo si TODAS sus publicaciones
+    estan marcadas para la misma accion.** Si una sola se salva, se salva el
+    grupo entero — es preferible dejar gastando a un anuncio que no califica
+    antes que apagar uno que si.
+
+    Devuelve (plan_filtrado, df_frenados) para poder decir en pantalla cuales
+    quedaron afuera y por que.
+    """
+    import pandas as pd
+
+    if plan is None or not len(plan) or df_ads is None or not len(df_ads):
+        return plan, pd.DataFrame()
+    if "ad_group_id" not in plan or "ad_group_id" not in df_ads:
+        return plan, pd.DataFrame()
+
+    marcados = set(plan[plan["accion"] == accion]["item_id"])
+    # Para cada ad_group del plan, todas las publicaciones que viven adentro.
+    companeros = df_ads[df_ads["ad_group_id"].isin(plan["ad_group_id"])]
+    completos = companeros.groupby("ad_group_id")["item_id"].apply(
+        lambda s: set(s).issubset(marcados))
+
+    seguros = {ag for ag, ok in completos.items() if ok}
+    frenados = plan[(plan["accion"] == accion)
+                    & (~plan["ad_group_id"].isin(seguros))].copy()
+    if len(frenados):
+        frenados["motivo"] = ("comparte ad_group con una publicación que no "
+                              "hay que tocar")
+    return plan[plan["ad_group_id"].isin(seguros)
+                | (plan["accion"] != accion)], frenados
+
+
 def aplicar(ml, plan, operador="", callback=None, acciones=("pausar",)):
     """
     Ejecuta el plan. Por defecto **solo pausa**: encender un anuncio gasta
