@@ -6,31 +6,15 @@ Gestion de Product Ads: campanas, anuncios y reglas automaticas.
     python publicidad.py --detalle  -> ademas escupe publicidad.csv
 
 La cuenta uruguaya tiene **un solo anunciante** (`CRAFTERSUY`, id 72307) y
-**ninguna campana todavia**. Medido el 05/08/2026 por dos vias que dicen lo
-mismo: `campaigns/search` contesta 404 `advertiser_campaigns_not_found` y
-`ads/search` devuelve 200 con **cero resultados**.
+**una sola campana** (`Campana Mercado Libre`, id 358685928, creada a mano el
+05/08/2026 porque la API no deja crearlas — ver `aplicar()`).
 
-O sea que hoy esta seccion no tiene nada que mostrar. Esta portada para que
-este lista el dia que se prenda la primera campana, y **los umbrales de las
-reglas no estan calibrados contra datos de esta cuenta** —no hay con que—:
-son los de Argentina, con el unico valor en pesos bajado a la escala local.
-Cuando haya un mes de gasto real, revisarlos.
+Al crearla, **ML genero 371 anuncios solo** y puso 39 en activo sin preguntar.
+No hubo que agregar nada: hubo que sacar los que no calificaban.
 
-**El orden no es negociable, y esta medido (05/08/2026).** Las tres cosas
-encadenan:
-
-  1. `campaigns/search` -> 404 `advertiser_campaigns_not_found`: no hay campañas.
-  2. `ads/search` -> 0 resultados, y `ads/{item_id}` -> 404 "Ads not found"
-     para las 23 candidatas. **Sin campañas, ML no genera los anuncios**, asi
-     que no existe el `ad_group_id`, que es lo unico con lo que se puede
-     agregar una publicacion a una campana.
-  3. Crear la campana por API -> **401 "User does not have permission to
-     write"**, el mismo error que en Argentina.
-
-O sea: **la primera campana se crea a mano desde el panel**. Recien despues ML
-genera los anuncios en estado `idle` y `resolver_candidatos()` puede
-completarlos con su `ad_group_id`. Antes de eso no hay nada que asignar, por
-mas cookie que se tenga.
+Los umbrales de las reglas vienen de Argentina y **todavia no estan calibrados
+contra el gasto de esta cuenta**, que arranco sin historial. El unico valor en
+pesos se bajo a la escala local. Cuando haya un mes de gasto real, revisarlos.
 
 **Es solo lectura hasta que se llama `aplicar()`.** `analizar()` propone y
 explica; `aplicar()` escribe.
@@ -68,6 +52,21 @@ COLUMNAS_CONFIG = ["clave", "valor"]
 HOJA_ESTRATEGICOS = "publicidad_estrategicos"
 COLUMNAS_ESTRATEGICOS = ["sku", "nota"]
 
+# Cuanto del margen se acepta gastar en publicidad. Con 0,6 se gastan 6 de
+# cada 10 pesos de margen y quedan 4 de ganancia.
+FACTOR_MARGEN = 0.60
+
+# El tope por SKU se recorta a este rango. Abajo, porque un ACOS de 2% no lo
+# alcanza casi ningun anuncio y equivale a apagar el producto sin decirlo.
+# Arriba, porque por mas margen que tenga un SKU, gastar la mitad de la venta
+# en publicidad es una apuesta, no una decision.
+TOPE_MINIMO = 5.0
+TOPE_MAXIMO = 40.0
+
+# Pasado esto, los margenes guardados se consideran viejos y se avisa.
+MARGENES_VIEJOS_DIAS = 45
+
+
 # Los topes viven en la Sheet, no en un archivo: en Streamlit Cloud el disco
 # es efimero y cualquier cambio se perderia en el proximo deploy.
 POR_DEFECTO = {
@@ -82,12 +81,17 @@ POR_DEFECTO = {
     "gasto_minimo": 500.0,
 
     # Campana a la que van los candidatos cuya campana natural esta pausada.
-    # Sumar un anuncio a una campana pausada no sirve —entra activo pero la
-    # campana no corre— y prender la general de Crafters encenderia sus 4.557
-    # anuncios de una. Por eso van a una campana propia. 0 = sin destino, y
-    # ahi los candidatos de campanas dormidas quedan afuera.
-    "campana_nuevos": 358677871.0,
-    "anunciante_nuevos": 872.0,
+    # Sumar un anuncio a una campana pausada no sirve: entra activo pero la
+    # campana no corre. En Uruguay hay **una sola campana y esta activa**, asi
+    # que este caso no se da hoy; se apunta a la misma para que, si alguna vez
+    # se pausa y se crea otra, el destino sea explicito y no cero.
+    "campana_nuevos": 358685928.0,
+    "anunciante_nuevos": 72307.0,
+
+    # Que fraccion del margen del SKU se acepta gastar en publicidad. Ver
+    # `tope_acos`: el equilibrio es ACOS = margen, asi que con 0,6 quedan 4
+    # de cada 10 pesos de margen como ganancia.
+    "factor_margen": FACTOR_MARGEN,
 }
 
 
@@ -112,6 +116,76 @@ def config():
 def guardar_config(valores):
     filas = [{"clave": k, "valor": v} for k, v in valores.items()]
     return almacen.reescribir_hoja(HOJA_CONFIG, COLUMNAS_CONFIG, filas)
+
+
+HOJA_MARGENES = "publicidad_margenes"
+COLUMNAS_MARGENES = ["sku", "margen_pct", "fecha"]
+
+def margenes_por_sku():
+    """
+    sku -> margen_pct, de la ultima corrida de Rentabilidad guardada.
+
+    Devuelve tambien que tan vieja es la medicion, porque un margen de hace
+    meses aplicado a un tope de gasto decide mal en silencio.
+    """
+    try:
+        filas = almacen.leer_hoja(HOJA_MARGENES, COLUMNAS_MARGENES)
+    except Exception:
+        return {}, None
+    margenes, fecha = {}, None
+    for f in filas:
+        sku = str(f.get("sku", "")).strip().upper()
+        if not sku:
+            continue
+        try:
+            margenes[sku] = float(str(f.get("margen_pct")).replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        if f.get("fecha"):
+            fecha = str(f["fecha"])
+    return margenes, fecha
+
+
+def guardar_margenes(df_rent):
+    """
+    Guarda el margen por SKU para que lo use el tope de ACOS.
+
+    Se guarda **en porcentaje** (12.5 y no 0.125): es lo que se compara
+    contra el ACOS, que la API de ML tambien devuelve en porcentaje. Mezclar
+    las dos escalas da topes 100 veces mas chicos y apaga todo.
+    """
+    if df_rent is None or not len(df_rent) or "margen_pct" not in df_rent:
+        return False, "no hay márgenes para guardar"
+    hoy = pd.Timestamp.now().strftime("%Y-%m-%d")
+    filas = []
+    for _, r in df_rent.iterrows():
+        sku = str(r.get("sku") or "").strip().upper()
+        m = r.get("margen_pct")
+        if not sku or m is None or pd.isna(m):
+            continue
+        filas.append({"sku": sku, "margen_pct": round(float(m) * 100, 2),
+                      "fecha": hoy})
+    if not filas:
+        return False, "ningún SKU tenía margen calculado"
+    return almacen.reescribir_hoja(HOJA_MARGENES, COLUMNAS_MARGENES, filas)
+
+
+def tope_acos(sku, margenes, cfg):
+    """
+    Hasta cuanto ACOS se banca **ese** SKU.
+
+    El punto de equilibrio es ACOS = margen: gastar en publicidad el mismo
+    porcentaje que deja el producto se come toda la ganancia. Se toma una
+    fraccion de eso para que quede ganancia.
+
+    Sin margen conocido cae al tope general, que es lo unico honesto: inventar
+    un margen para un SKU que no medimos es peor que usar la regla vieja.
+    """
+    m = margenes.get(str(sku or "").strip().upper()) if margenes else None
+    if m is None or m <= 0:
+        return cfg["acos_max"], False
+    tope = m * cfg.get("factor_margen", FACTOR_MARGEN)
+    return min(max(tope, TOPE_MINIMO), TOPE_MAXIMO), True
 
 
 def estrategicos():
@@ -150,9 +224,8 @@ def campanas(ml, advertiser_id):
     Las campañas del anunciante, o lista vacia si todavia no tiene ninguna.
 
     **Un anunciante sin campañas no es un error**, y ML lo contesta como si
-    lo fuera: `404 advertiser_campaigns_not_found`. Es la situacion normal
-    de una cuenta que todavia no arranco —hoy, la uruguaya— y dejar que ese
-    404 se propague tumbaba la seccion entera con un traceback.
+    lo fuera: `404 advertiser_campaigns_not_found`. Dejar que ese 404 se
+    propague tumbaba la seccion entera con un traceback.
     """
     base = BASE.format(site=SITE_ID, adv=advertiser_id)
     try:
@@ -331,7 +404,8 @@ def _vendible(pub):
     return True, ""
 
 
-def analizar(df_ads, pubs, cfg=None, estrat=None, df_rent=None):
+def analizar(df_ads, pubs, cfg=None, estrat=None, df_rent=None,
+             margenes=None):
     """
     Marca que hacer con cada anuncio. Devuelve el mismo DataFrame con
     `accion` ('pausar' / 'activar' / 'revisar' / 'ninguna') y `motivo`.
@@ -341,6 +415,11 @@ def analizar(df_ads, pubs, cfg=None, estrat=None, df_rent=None):
     """
     cfg = cfg or config()
     estrat = estrat if estrat is not None else estrategicos()
+    # **El tope de ACOS es por SKU, no uno solo para todo el catalogo.** Un
+    # SKU que deja 10% de margen pierde plata con ACOS 15%; uno que deja 33%
+    # aguanta bastante mas. Ver `tope_acos`.
+    if margenes is None:
+        margenes, _ = margenes_por_sku()
     df = df_ads.copy()
     if not len(df):
         return df
@@ -397,10 +476,14 @@ def analizar(df_ads, pubs, cfg=None, estrat=None, df_rent=None):
                 motivos.append(f"gastó ${a['gasto']:,.0f} y no vendió nada"
                                .replace(",", "."))
                 continue
-            if a["acos"] > cfg["acos_max"]:
+            tope, propio = tope_acos(sku, margenes, cfg)
+            if a["acos"] > tope:
                 acciones.append("pausar")
-                motivos.append(f"ACOS {a['acos']:.0f}% supera el tope de "
-                               f"{cfg['acos_max']:.0f}%")
+                motivos.append(
+                    f"ACOS {a['acos']:.0f}% supera el {tope:.0f}% que banca "
+                    f"este SKU por su margen" if propio else
+                    f"ACOS {a['acos']:.0f}% supera el tope general de "
+                    f"{tope:.0f}% (sin margen medido para este SKU)")
                 continue
             if 0 < a["roas"] < cfg["roas_min"]:
                 acciones.append("pausar")
@@ -443,6 +526,87 @@ def analizar(df_ads, pubs, cfg=None, estrat=None, df_rent=None):
     return df.sort_values("gasto", ascending=False).reset_index(drop=True)
 
 
+# ------------------------------------------- concentrar el presupuesto
+
+# Desde que uso de su tope una campana se considera limitada por el
+# presupuesto. Medido en Argentina, donde dos campañas iban al 88% y 83%
+# de su tope. **En Uruguay todavia no hay gasto con que verificarlo.**
+UMBRAL_TOPE = 0.75
+
+# Un anuncio se apaga por concentracion si rinde menos que esta fraccion del
+# **cuartil superior** de su campana. No se compara contra el mejor: un solo
+# anuncio excepcional dejaria a todos los demas por debajo y vaciaria la
+# campana.
+FRACCION_VS_BUENOS = 0.5
+
+# Tope de anuncios que la regla puede apagar por campana en una corrida.
+# Concentrar es mover plata de los flojos a los buenos; apagar media campana
+# de una no es concentrar, es cortar el gasto y de paso las ventas.
+MAX_POR_CAMPANA = 0.25
+
+
+def concentrar_presupuesto(plan, camps_por_adv, cfg=None, estrat=None,
+                           dias=30):
+    """
+    Apaga anuncios que rinden **bien pero mucho peor que sus compañeros de
+    campana**, para que el presupuesto se lo lleven los que mejor convierten.
+
+    La logica de fondo: en Product Ads el presupuesto es **de la campana, no
+    del anuncio** —el ad_group no tiene ni budget ni puja— asi que la unica
+    forma de concentrar plata en los buenos es hacerles lugar.
+
+    **Solo aplica si la campana esta contra su tope.** Si no lo agota, apagar
+    un anuncio que rinde no libera nada para nadie: se pierde su venta y ya.
+    Por eso mira `UMBRAL_TOPE` antes de tocar nada.
+
+    Devuelve las filas del plan que pasan a 'pausar', con el motivo escrito.
+    """
+    cfg = cfg or config()
+    estrat = estrat if estrat is not None else estrategicos()
+    if plan is None or not len(plan):
+        return plan
+
+    topes = {c["id"]: (c.get("budget") or 0) * dias
+             for cs in (camps_por_adv or {}).values() for c in cs}
+
+    cambios = 0
+    for camp, g in plan.groupby("campaign_id"):
+        tope = topes.get(camp, 0)
+        if not tope or g["gasto"].sum() / tope < UMBRAL_TOPE:
+            continue
+
+        # Solo los que estan corriendo y tienen plata medida encima.
+        vivos = g[(g["estado_ad"].isin(CORRIENDO))
+                  & (g["gasto"] >= cfg["gasto_minimo"])
+                  & (g["roas"] > 0)]
+        if len(vivos) < 4:
+            # Con tres anuncios no hay "cuartil superior" que valga.
+            continue
+
+        referencia = vivos["roas"].quantile(0.75)
+        piso = referencia * FRACCION_VS_BUENOS
+        flojos = vivos[vivos["roas"] < piso].sort_values("roas")
+        if not len(flojos):
+            continue
+
+        permitidos = max(1, int(len(vivos) * MAX_POR_CAMPANA))
+        for _, r in flojos.head(permitidos).iterrows():
+            sku = str(r.get("sku") or "").upper()
+            if sku and sku in estrat:
+                continue
+            if plan.loc[plan["item_id"] == r["item_id"], "accion"].iloc[0] \
+                    == "pausar":
+                continue          # ya lo apaga otra regla, no se pisa el motivo
+            plan.loc[plan["item_id"] == r["item_id"], "accion"] = "pausar"
+            plan.loc[plan["item_id"] == r["item_id"], "motivo"] = (
+                f"ROAS {r['roas']:.1f} contra {referencia:.1f} del cuartil "
+                f"superior de su campaña, que está al "
+                f"{g['gasto'].sum() / tope:.0%} del tope: el presupuesto "
+                "rinde más en los otros")
+            cambios += 1
+    return plan
+
+
 # ------------------------------------------------- candidatos a publicitar
 
 # Diagnosticos de `conversion.py` que significan "esto convierte y le falta
@@ -471,7 +635,7 @@ def mapa_de_campanas(advs, camps_por_adv):
     Aprenderlo de los anuncios parece mas elegante y esta mal: una campana
     contiene publicaciones de varias marcas, asi que "la campana mas frecuente
     para la marca X" termina mandando productos Suprabond a la campana de
-    Bulit. Con presupuestos separados por marca, eso es gastar del bolsillo
+    otra. Con presupuestos separados por marca, eso es gastar del bolsillo
     equivocado. Se vio en la primera prueba.
 
     La marca sin anunciante propio (La Gauchita, Sica, Ferrum...) cae en la
@@ -590,6 +754,73 @@ def candidatos(df_conv, pubs, df_ads, advs=None, camps_por_adv=None,
         })
 
     return pd.DataFrame(filas)
+
+
+# Dias que tiene que pasar un anuncio sin que lo toquemos antes de volver a
+# juzgarlo.
+#
+# **Por que existe.** Corriendo cada semana sobre una ventana de 30 dias, un
+# anuncio que se prende el lunes se juzga el lunes siguiente con 7 dias de
+# datos propios y 23 de otra epoca — o de cuando estaba apagado. Se lo puede
+# prender y apagar antes de saber como funciona de verdad. Es el feedback que
+# trajo Mariano el 2026-08-06 y era un defecto real.
+#
+# El enfriamiento es **por anuncio**, no del proceso entero: asi una corrida
+# sigue detectando rapido un problema nuevo, pero nunca re-juzga algo que
+# acabamos de tocar.
+ENFRIAMIENTO_DIAS = 21
+
+
+def tocados_hace_poco(dias=ENFRIAMIENTO_DIAS):
+    """
+    item_id -> fecha, de todo lo que tocamos dentro del enfriamiento.
+
+    Sale de la auditoria, que ya es el registro de que cambiamos y cuando. No
+    hace falta llevar otro estado en paralelo.
+    """
+    try:
+        filas = almacen.leer_hoja(almacen.HOJA_AUDITORIA,
+                                  almacen.COLUMNAS_AUDITORIA)
+    except Exception:
+        # Sin auditoria no se puede saber: se sigue sin enfriamiento en vez
+        # de frenar todo. Peor seria no hacer nada nunca.
+        return {}
+    corte = pd.Timestamp.now() - pd.Timedelta(days=dias)
+    recientes = {}
+    for f in filas:
+        if str(f.get("campo")) != "ad_status":
+            continue
+        try:
+            cuando = pd.Timestamp(str(f.get("fecha")))
+        except Exception:
+            continue
+        if cuando < corte:
+            continue
+        item = str(f.get("item_id") or "")
+        if item and (item not in recientes or cuando > recientes[item]):
+            recientes[item] = cuando
+    return recientes
+
+
+def aplicar_enfriamiento(plan, recientes=None, dias=ENFRIAMIENTO_DIAS):
+    """Deja en 'ninguna' lo que tocamos hace menos de `dias`."""
+    if plan is None or not len(plan):
+        return plan
+    recientes = recientes if recientes is not None else tocados_hace_poco(dias)
+    if not recientes:
+        return plan
+    for item, cuando in recientes.items():
+        fila = plan["item_id"] == item
+        if not fila.any():
+            continue
+        if plan.loc[fila, "accion"].iloc[0] == "ninguna":
+            continue
+        faltan = dias - (pd.Timestamp.now() - cuando).days
+        plan.loc[fila, "accion"] = "ninguna"
+        plan.loc[fila, "motivo"] = (
+            f"lo tocamos el {cuando:%d/%m}: se espera {max(faltan, 0)} días "
+            "más para juzgarlo con datos suyos")
+    return plan
 
 
 def resolver_candidatos(ml, cand, estados_camp=None, callback=None):
@@ -790,9 +1021,10 @@ def aplicar(ml, plan, operador="", callback=None, acciones=("pausar",)):
         PUT .../product_ads/ad_groups/{id}         permission to write."
 
     No es de la cuenta ni de los scopes: falla igual con el token de
-    CRAFTERSARG y con el de **ERPA SA**, que es la duena de los tres
-    anunciantes, los dos con `urn:ml:mktp:ads:/read-write` concedido y con la
-    app aprobada entera en el devcenter. Falta que ML habilite la escritura de
+    en Argentina, los dos con `urn:ml:mktp:ads:/read-write` concedido y con la
+    app aprobada entera en el devcenter. **Y en Uruguay pasa lo mismo**: crear
+    la primera campana contesto el mismo 401 el 05/08/2026, con otro
+    anunciante y otro sitio. Falta que ML habilite la escritura de
     Product Ads para la aplicacion. Se arregla del lado de ML, no del codigo.
     """
     if plan is None or not len(plan):
@@ -846,9 +1078,8 @@ def acos_a_roas(acos_pct):
     **Desde diciembre de 2025 el objetivo se escribe como `roas_target`, no
     como `acos_target`.** Son la misma cosa dada vuelta: ACOS = 100 / ROAS.
 
-    Un ACOS objetivo de 23% es un ROAS de 4,35 — que es exactamente lo que
-    tienen configuradas Bulit y Suprabond, y por eso los dos numeros que
-    devuelve la API coinciden.
+    Un ACOS objetivo de 23% es un ROAS de 4,35. Verificado contra las
+    campanas argentinas, donde los dos numeros que devuelve la API coinciden.
     """
     return round(100.0 / float(acos_pct), 4) if acos_pct else 0.0
 

@@ -1,16 +1,14 @@
 name: Apagar publicidad que no rinde
 
-# **Sin cron a propósito.** La cuenta uruguaya tiene un anunciante y CERO
-# campañas (medido el 05/08/2026: `campaigns/search` da 404
-# advertiser_campaigns_not_found y `ads/search` devuelve 0 resultados), así
-# que una corrida semanal gastaría minutos de Actions para no encontrar nada.
+# Semanal, martes 9 de Uruguay (12 UTC). Semanal y no diario a propósito: las
+# métricas se miden sobre 30 días y no se mueven de un día para el otro.
 #
-# Cuando se prenda la primera campaña, descomentar el `schedule` de abajo.
-# En Argentina corre los martes a las 9 (12 UTC), semanal y no diario porque
-# las métricas se miden sobre 30 días y no se mueven de un día para el otro.
+# Estuvo sin cron hasta el 06/08/2026, mientras la cuenta no tenía ninguna
+# campaña: correrlo entonces era gastar minutos de Actions para no encontrar
+# nada. Ya hay una campaña activa, así que se prende.
 on:
-  # schedule:
-  #   - cron: '0 12 * * 2'
+  schedule:
+    - cron: '0 12 * * 2'
   workflow_dispatch:
     inputs:
       aplicar:
@@ -27,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -49,8 +47,7 @@ jobs:
           grep -q '^\[ads\]' .streamlit/secrets.toml || \
             echo "::warning::No hay sección [ads] en los secrets: sin la cookie ssid no se puede apagar nada."
 
-      # El disparo a mano respeta el input. Cuando se active el cron, la
-      # rama del schedule aplica sola, como en Argentina.
+      # El cron programado siempre aplica; el disparo a mano respeta el input.
       - name: Apagar lo que no se banca
         run: |
           if [ "${{ github.event_name }}" = "schedule" ] || \

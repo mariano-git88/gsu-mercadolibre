@@ -130,7 +130,12 @@ def clasificar(fila, conv_mediana):
 
 
 def analizar(ml, dias=30, callback=None):
-    pubs = json.loads((DIR / "catalogo.json").read_text(encoding="utf-8"))
+    # **No leer catalogo.json directo.** Esta en el .gitignore, asi que en el
+    # runner de Actions no existe y la corrida muere con FileNotFoundError.
+    # `cargar_catalogo` lo usa si esta y si no lo baja de ML. Importa desde
+    # que `publicidad_cron.py` llama aca y corre por GitHub Actions.
+    from catalogo import cargar_catalogo
+    pubs = cargar_catalogo(ml)
     activas = [p for p in pubs if p.get("status") == "active"]
 
     hasta = datetime.now()

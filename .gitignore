@@ -57,6 +57,7 @@ reclamos_cache.json
 
 # Salidas de publicidad
 publicidad.csv
+duplicados.csv
 
 # Buy Box y promociones
 buybox.csv

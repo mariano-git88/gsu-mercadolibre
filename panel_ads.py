@@ -119,7 +119,7 @@ def hay_sesion():
 def _cookies(sesion, advertiser_id):
     """
     El anunciante viaja en su propia cookie y **la sesion queda fijada al que
-    estabas mirando en el panel**: con la de Bulit, todo lo de Suprabond
+    estabas mirando en el panel**: con la de un anunciante, lo de otro
     contesta 400. Se arma a mano para poder tocar cualquiera.
     """
     adv = urllib.parse.quote(
@@ -292,7 +292,7 @@ def despertar_campanas(sesion, ml, plan, callback=None):
     entra activo pero la campana no corre, asi que no se muestra ni gasta.
 
     **Prender una campana enciende TODO lo que ya tiene adentro**, no solo lo
-    que estas por agregar. La General AON de Crafters tiene 4.557 anuncios,
+    que estas por agregar. En Argentina una campana general tenia 4.557,
     ~1.550 en estado corrible: prenderla es empezar a gastar en todos ellos
     con un tope de $78.859, no sumar 24. Por eso devuelve el detalle de lo que
     prendio y quien llama tiene que mostrarlo.

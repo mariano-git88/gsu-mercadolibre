@@ -220,6 +220,7 @@ salida están en el `.gitignore` y se regeneran solos.
 | `publicidad.py` | Product Ads: campañas, anuncios y reglas |
 | `panel_ads.py` | Escribe publicidad por el panel interno (la API no deja) |
 | `publicidad_cron.py` | Apaga los anuncios que no se bancan |
+| `duplicados.py` | Publicaciones repetidas del mismo SKU (hoy no hay ninguna) |
 | `promos_planilla.py` | Descuentos en lote a una campaña propia, desde planilla |
 | `competencia.py` | Mejor precio por EAN vía catálogo |
 | `mayoristas.py` | Precios por cantidad según reglas |

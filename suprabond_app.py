@@ -2995,9 +2995,9 @@ elif seccion == "Competencia":
 elif seccion == "Publicidad":
     st.markdown("#### Publicidad")
     st.caption(
-        "Un solo anunciante. Hoy la cuenta **no tiene ninguna campaña "
-        "corriendo**, así que esta sección va a estar vacía hasta que se "
-        "prenda la primera desde el panel de MercadoLibre.")
+        "Un anunciante y una campaña. Al crearla, MercadoLibre generó los "
+        "anuncios solo y activó una parte sin preguntar, así que el trabajo "
+        "no es sumar sino sacar los que no rinden.")
 
     dias_pub = st.selectbox("Período a medir", [7, 15, 30, 60], index=2,
                             format_func=lambda d: f"últimos {d} días")
@@ -3009,7 +3009,7 @@ elif seccion == "Publicidad":
     # visualmente mientras recalcula. Se elige con un selector para que en el
     # DOM exista solo la vista activa.
     _VISTAS_PUB = ["Cómo va", "Qué haría con los anuncios",
-                   "Topes y estratégicos"]
+                   "Correr el proceso", "Topes y estratégicos"]
     vista_pub = st.segmented_control(
         "Vista", _VISTAS_PUB, default=_VISTAS_PUB[0],
         key="pub_vista", label_visibility="collapsed") or _VISTAS_PUB[0]
@@ -3037,6 +3037,37 @@ elif seccion == "Publicidad":
                     m3.metric("Presupuesto", pesos(c.get("budget") or 0))
                     m4.metric("ACOS objetivo", f"{c.get('acos_target', 0):.0f}%")
                 st.divider()
+
+            with st.expander("Crear una campaña"):
+                if not panel_ads.hay_sesion():
+                    st.caption("Hace falta la sesión del panel (`[ads] ssid` "
+                               "en los secrets).")
+                else:
+                    nom = st.text_input("Nombre", key="nc_nombre")
+                    d1, d2, d3 = st.columns(3)
+                    adv_nc = d1.selectbox(
+                        "Anunciante", [a["advertiser_id"] for a, _ in camps],
+                        format_func=lambda i: next(
+                            a["advertiser_name"] for a, _ in camps
+                            if a["advertiser_id"] == i), key="nc_adv")
+                    pres_nc = d2.number_input("Presupuesto", 1000, 999999,
+                                              20000, 1000, key="nc_pres")
+                    acos_nc = d3.number_input("ACOS objetivo %", 1, 100, 15,
+                                              key="nc_acos")
+                    st.caption(
+                        "**Nace pausada.** Una campaña con presupuesto "
+                        "empieza a gastar apenas se activa, así que "
+                        "encenderla es un paso aparte.")
+                    if st.button("Crear", key="nc_go",
+                                 disabled=not nom.strip()):
+                        ok, det = panel_ads.crear_campana(
+                            panel_ads.leer_sesion(), adv_nc, nom.strip(),
+                            pres_nc, acos_nc)
+                        if ok:
+                            st.success(f"Creada con id {det}. Está pausada.")
+                            st.session_state.pop("pub_camp", None)
+                        else:
+                            st.error(str(det))
 
     elif vista_pub == "Qué haría con los anuncios":
         st.caption(
@@ -3118,7 +3149,7 @@ elif seccion == "Publicidad":
                     st.warning(
                         f"**{dormidas} de las {len(sumar)} irían a una "
                         "campaña pausada** y ahí no van a gastar ni a "
-                        "mostrarse. La campaña general (Crafters) está en "
+                        "mostrarse. La campaña está en "
                         "pausa: si querés que corran, hay que activarla.",
                         icon="😴")
             if len(sumar):
@@ -3229,7 +3260,7 @@ elif seccion == "Publicidad":
                         "una campaña pausada, así que se va a prender.** Y "
                         "prender una campaña enciende **todo lo que ya tiene "
                         "adentro**, no solo lo que estás agregando: la "
-                        "general de Crafters tiene 4.557 anuncios, ~1.550 en "
+                        "general de una cuenta grande puede tener miles, "
                         "estado corrible, con un tope de \\$78.859. Eso es "
                         "empezar a gastar en mil quinientos anuncios que "
                         "nadie revisó, no sumar 24.", icon="🚨")
@@ -3302,6 +3333,65 @@ elif seccion == "Publicidad":
                 st.dataframe(res_pub, use_container_width=True,
                              hide_index=True)
 
+    elif vista_pub == "Correr el proceso":
+        st.caption(
+            "Lo mismo que corre solo los martes a las 9: mide, apaga lo que "
+            "pasa el ACOS objetivo y suma lo que convierte y no se publicita. "
+            "**Sin topes**: hace todo lo que califica.")
+
+        conv_ya = st.session_state.get("conv")
+        if conv_ya is not None and len(conv_ya):
+            st.caption(f"Va a reusar el análisis de *Visitas vs ventas* que "
+                       f"ya está en memoria ({len(conv_ya)} publicaciones), "
+                       "así que tarda unos 2 minutos.")
+        else:
+            st.warning(
+                "No hay análisis de *Visitas vs ventas* en memoria, así que "
+                "lo va a medir: es **una llamada por publicación** y tarda "
+                "unos 15 minutos. No cierres la pestaña. Si primero corrés "
+                "esa sección (en Oportunidades), esto baja a 2 minutos.",
+                icon="⏳")
+
+        aplicar_pub = st.checkbox(
+            "Aplicar de verdad (sin tildar, solo muestra qué haría)",
+            key="cron_aplicar")
+        if aplicar_pub:
+            st.error(
+                "Va a **apagar y encender anuncios de verdad**, sin tope de "
+                "cantidad. Encender gasta desde el momento; el único límite "
+                "es el presupuesto de cada campaña.", icon="🚨")
+
+        if st.button("Correr el proceso ahora", key="cron_go",
+                     type="primary" if aplicar_pub else "secondary",
+                     disabled=aplicar_pub and not panel_ads.hay_sesion()):
+            caja = st.empty()
+            lineas = []
+
+            def _log(m):
+                lineas.append(str(m))
+                # Solo el final: el log entero son cientos de líneas y
+                # repintarlo completo en cada paso vuelve la app un plomo.
+                caja.code("\n".join(lineas[-18:]), language=None)
+
+            try:
+                with st.spinner("Corriendo..."):
+                    publicidad_cron.correr(aplicar=aplicar_pub, log=_log,
+                                           conv=conv_ya, ml=ml)
+            except Exception as e:
+                _log(f"\nSE CORTÓ: {type(e).__name__}: {e}")
+                st.error(f"La corrida se cortó: {type(e).__name__}: {e}")
+            st.session_state["cron_log"] = "\n".join(lineas)
+            if aplicar_pub:
+                # Los estados cambiaron: lo que estaba en pantalla quedó viejo.
+                st.session_state.pop("pub_plan", None)
+
+        if st.session_state.get("cron_log"):
+            st.download_button(
+                "Descargar el log completo",
+                st.session_state["cron_log"].encode("utf-8"),
+                f"publicidad_{datetime.now():%Y%m%d_%H%M}.txt", "text/plain",
+                key="cron_dl")
+
     elif vista_pub == "Topes y estratégicos":
         st.caption(
             "Los topes y la lista de estratégicos viven en la Google Sheet, "
@@ -3355,7 +3445,6 @@ elif seccion == "Publicidad":
                      for _, r in editado.iterrows()
                      if str(r.get("sku", "")).strip()]
             ok, det = publicidad.guardar_estrategicos(filas)
-            st.success(f"{len(filas)} SKU guardados.") if ok else st.error(det)
 
 elif seccion == "Oportunidades":
     st.markdown("#### Dónde hay plata sobre la mesa")

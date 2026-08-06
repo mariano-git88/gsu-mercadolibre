@@ -1,5 +1,19 @@
 [
   {
+    "fecha": "2026-08-06",
+    "hora": "12:15",
+    "titulo": "La publicidad ahora decide con el margen de cada producto",
+    "tipo": "mejora",
+    "puntos": [
+      "**El tope de gasto ya no es uno solo para todo el catálogo.** Cada producto tiene el suyo, calculado desde su margen: el punto de equilibrio es gastar en publicidad lo mismo que deja el producto, así que se toma el 60% de eso y queda ganancia.",
+      "Ya están cargados **266 márgenes**: 257 productos tienen tope propio (entre 5% y 37%) y 9 caen al tope general porque hoy pierden plata.",
+      "Se puede **crear campañas desde la app**, concentrar el presupuesto en los anuncios que rinden, y hay un enfriamiento de 21 días para no re-juzgar algo que se acaba de tocar.",
+      "El proceso semanal que apaga lo que no rinde **ya tiene horario**: martes 9 de la mañana. Estaba apagado mientras no había campañas.",
+      "Sección nueva **Duplicados**, para publicaciones repetidas del mismo SKU. Hoy no hay ninguna para borrar: los 143 grupos repetidos incluyen todos una publicación de catálogo, que no se toca.",
+      "Arreglado un error que iba a hacer fallar el proceso automático: leía el catálogo de un archivo que **no existe en el servidor de GitHub**. Ahora si no está, lo baja."
+    ]
+  },
+  {
     "fecha": "2026-08-05",
     "hora": "20:45",
     "titulo": "Publicidad: la campaña quedó con los anuncios que convierten",
