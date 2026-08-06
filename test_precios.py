@@ -271,6 +271,56 @@ def test_no_arrastrar_companeros_de_ad_group():
              "si TODAS las del grupo estan marcadas, si lo toca")
 
 
+def test_no_publicitar_lo_que_pierde_plata():
+    """
+    Un SKU con margen negativo no se publicita, y **no espera datos**.
+
+    Antes `tope_acos` metia en el mismo saco "sin margen conocido" y "margen
+    conocido y negativo": los dos caian al tope general, asi que a un producto
+    que pierde plata en cada unidad se le permitia gastar igual. Y la regla de
+    "pierde plata de caja" vivia adentro del bloque que exige datos
+    suficientes, asi que uno que perdia pero todavia no habia gastado se
+    quedaba prendido juntando clics pagos.
+    """
+    import pandas as pd
+
+    import publicidad
+
+    print("\nNo se publicita lo que pierde plata")
+    cfg = publicidad.config()
+    m = {"PIERDE": -12.5, "GANA": 40.0}
+
+    chequear(publicidad.tope_acos("PIERDE", m, cfg) == (0.0, True),
+             "margen negativo -> tope 0, o sea no publicitar")
+    chequear(publicidad.tope_acos("GANA", m, cfg)[1] is True,
+             "margen positivo -> tope propio del SKU")
+    chequear(publicidad.tope_acos("NO_ESTA", m, cfg) == (cfg["acos_max"], False),
+             "sin margen conocido -> tope general, que no es lo mismo")
+
+    def ad(item, sku):
+        return {"item_id": item, "sku": sku, "ad_group_id": 1, "titulo": "t",
+                "marca": "", "estado_ad": "active", "clicks": 0, "gasto": 0.0,
+                "acos": 0.0, "roas": 0.0, "unidades": 0, "impresiones": 0,
+                "facturado": 0.0, "campaign_id": 9, "advertiser_id": 1,
+                "precio": 100, "catalogo": False, "gana_buybox": False,
+                "ctr": 0, "cvr": 0}
+
+    def pub(item, sku):
+        return {"id": item, "status": "active", "available_quantity": 5,
+                "attributes": [{"id": "SELLER_SKU", "value_name": sku}]}
+
+    out = publicidad.analizar(pd.DataFrame([ad("A", "PIERDE"), ad("B", "GANA")]),
+                              [pub("A", "PIERDE"), pub("B", "GANA")],
+                              cfg=cfg, estrat={}, margenes=m)
+    por_id = dict(zip(out["item_id"], out["accion"]))
+    chequear(por_id.get("A") == "pausar",
+             "se pausa aunque no tenga ni un clic",
+             f"quedo en {por_id.get('A')}")
+    chequear(por_id.get("B") != "pausar",
+             "y al que gana no se lo toca por falta de datos",
+             f"quedo en {por_id.get('B')}")
+
+
 def test_topes_duros():
     import buybox
     import plata
@@ -319,6 +369,7 @@ def main():
     test_piso_de_marca()
     test_no_pisar_una_promocion_activa()
     test_no_arrastrar_companeros_de_ad_group()
+    test_no_publicitar_lo_que_pierde_plata()
     test_topes_duros()
     test_marcas_propias()
 

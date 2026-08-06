@@ -178,12 +178,25 @@ def tope_acos(sku, margenes, cfg):
     porcentaje que deja el producto se come toda la ganancia. Se toma una
     fraccion de eso para que quede ganancia.
 
-    Sin margen conocido cae al tope general, que es lo unico honesto: inventar
-    un margen para un SKU que no medimos es peor que usar la regla vieja.
+    Hay tres casos y **no son dos**, que es como estaba antes:
+
+      - **sin margen conocido** -> tope general. Es lo unico honesto: inventar
+        un margen para un SKU que no medimos es peor que usar la regla vieja.
+      - **margen positivo** -> su fraccion, recortada al rango.
+      - **margen negativo o cero** -> **tope 0, o sea no publicitar**. Antes
+        caia en el mismo saco que "sin margen" y se le permitia gastar hasta
+        el tope general: publicidad sobre un producto que ya pierde plata en
+        cada unidad no la recupera, la multiplica. No es lo mismo no saber que
+        saber que pierde.
+
+    Devuelve (tope, propio). `propio` es True cuando el numero sale del margen
+    de ese SKU —incluido el caso negativo—, y False cuando cae al general.
     """
     m = margenes.get(str(sku or "").strip().upper()) if margenes else None
-    if m is None or m <= 0:
+    if m is None:
         return cfg["acos_max"], False
+    if m <= 0:
+        return 0.0, True
     tope = m * cfg.get("factor_margen", FACTOR_MARGEN)
     return min(max(tope, TOPE_MINIMO), TOPE_MAXIMO), True
 
@@ -302,7 +315,7 @@ def anuncios(ml, advertiser_id, desde, hasta, callback=None, tope=None):
 
 def traer_todo(ml, desde, hasta, callback=None, tope=None):
     """
-    Anuncios de los tres anunciantes.
+    Anuncios de todos los anunciantes de la cuenta (en Uruguay, uno).
 
     Devuelve (df, advs, camps_por_adv). Los dos ultimos hacen falta para
     saber a que campana mandar una publicacion nueva: ver `mapa_de_campanas`.
@@ -465,7 +478,22 @@ def analizar(df_ads, pubs, cfg=None, estrat=None, df_rent=None,
             motivos.append(porque if activo else f"{porque} (ya pausado)")
             continue
 
-        # 3. Sin datos suficientes no se juzga. Apagar por un ACOS calculado
+        # 4. Lo que pierde plata de caja no se publicita, y esto **no espera
+        #    a tener datos del anuncio**: que el producto pierda en cada
+        #    unidad se sabe por el margen, no por los clics. Estaba adentro
+        #    del bloque de abajo, asi que un producto que perdia plata pero
+        #    todavia no habia gastado lo suficiente se quedaba prendido
+        #    juntando clics pagos que solo agrandaban la perdida.
+        margen_sku = (margenes or {}).get(sku) if sku else None
+        if sku and (sku in pierde_plata
+                    or (margen_sku is not None and margen_sku <= 0)):
+            acciones.append("pausar" if activo else "ninguna")
+            motivos.append(
+                "el SKU pierde plata de caja: publicitarlo agranda la pérdida"
+                if activo else "el SKU pierde plata de caja (ya pausado)")
+            continue
+
+        # 5. Sin datos suficientes no se juzga. Apagar por un ACOS calculado
         #    sobre 4 clics es apagar por ruido.
         flaco = (a["clicks"] < cfg["clicks_minimos"]
                  and a["gasto"] < cfg["gasto_minimo"])
@@ -489,10 +517,6 @@ def analizar(df_ads, pubs, cfg=None, estrat=None, df_rent=None,
                 acciones.append("pausar")
                 motivos.append(f"ROAS {a['roas']:.1f} por debajo de "
                                f"{cfg['roas_min']:.1f}")
-                continue
-            if sku and sku in pierde_plata:
-                acciones.append("pausar")
-                motivos.append("el SKU pierde plata de caja")
                 continue
 
         # 4. Apagado pero rinde: candidato a volver a encender. Solo cuenta

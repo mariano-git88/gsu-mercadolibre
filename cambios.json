@@ -1,6 +1,18 @@
 [
   {
     "fecha": "2026-08-06",
+    "hora": "19:30",
+    "titulo": "Lo que pierde plata ya no se publicita",
+    "tipo": "arreglo",
+    "puntos": [
+      "**Un producto que pierde plata en cada unidad ya no se publicita.** Antes se lo trataba igual que a uno del que no sabemos el margen: los dos podían gastar hasta el tope general. Publicidad sobre algo que ya pierde no recupera la pérdida, la multiplica.",
+      "Y no espera a juntar datos: que el producto pierda se sabe por el margen, no por los clics. Antes esa regla estaba adentro del bloque que exige un mínimo de clics y gasto, así que uno que perdía plata pero recién arrancaba se quedaba prendido gastando.",
+      "Hoy son **9 productos**. Ninguno tiene anuncios activos —sus 8 anuncios están fuera de la campaña—, así que **no se apagó nada**: lo que hace el cambio es impedir que se enciendan.",
+      "Apareció además un anuncio activo sobre una publicación pausada (clics pagos a una página que no vende). **No se pudo pausar**: comparte grupo con 3 anuncios que están bien, y apagar el grupo los apagaría a todos. Es la protección que pusimos ayer, funcionando sobre un caso real."
+    ]
+  },
+  {
+    "fecha": "2026-08-06",
     "hora": "12:15",
     "titulo": "La publicidad ahora decide con el margen de cada producto",
     "tipo": "mejora",
