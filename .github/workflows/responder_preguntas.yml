@@ -1,0 +1,75 @@
+name: Responder preguntas
+
+# Contesta solas las preguntas de compradores en MercadoLibre Uruguay.
+#
+# Por qué existe (y por qué antes no):
+# NOTAS_PORTEO.md decía que no era viable porque la cuenta tiene ~37 preguntas
+# en toda su historia y el motor arma el contexto con BM25 sobre las respuestas
+# propias. Ese razonamiento medía la base por TAMAÑO, y lo que importa es la
+# REPETICIÓN: el 35% de las preguntas de esta cuenta son de logística ("dónde
+# están", "se puede retirar", "cuánto sale el envío a X") y se contestan casi
+# textualmente igual — "no contamos con local físico" aparece 10 veces y
+# "realizamos envíos a todo el país" 11. Para esas, 37 ejemplos alcanzan.
+# Probado el 12/08/2026 contra las últimas 6 preguntas reales: respondió 5 bien
+# y se abstuvo en 1, con el motivo correcto.
+#
+# Frecuencia: cada hora, todos los días. Con ~5 preguntas por mes no hace falta
+# más, y el repo usa hoy una fracción mínima de los 2.000 minutos del plan
+# gratuito (30 corridas en todo agosto). No se pega al sync de stock como en
+# Argentina porque acá ese job corre solo cada 2 horas y de lunes a sábado:
+# dejaría los domingos sin cubrir.
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      simular:
+        description: 'Redactar sin publicar'
+        type: boolean
+        default: false
+
+concurrency:
+  # Procesar dos veces la misma pregunta no la duplica (procesar() es
+  # idempotente por question_id), pero gasta llamadas al modelo al pedo.
+  group: responder-preguntas
+  cancel-in-progress: false
+
+jobs:
+  responder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Escribir los secrets
+        env:
+          SECRETS_TOML: ${{ secrets.GSU_ML_SECRETS_TOML }}
+        run: |
+          if [ -z "$SECRETS_TOML" ]; then
+            echo "Falta el secret GSU_ML_SECRETS_TOML."; exit 1
+          fi
+          mkdir -p .streamlit
+          printf '%s' "$SECRETS_TOML" > .streamlit/secrets.toml
+          # Sin la clave de Anthropic el modelo no corre y cada pregunta queda
+          # registrada como error_tecnico. Pasó en Argentina del 31/07 al
+          # 01/08: se prefiere fallar acá, ruidoso, que en silencio.
+          if ! grep -q '^anthropic_api_key' .streamlit/secrets.toml; then
+            echo "El secret no tiene anthropic_api_key. Actualizalo."; exit 1
+          fi
+
+      - name: Responder lo que se pueda
+        run: |
+          if [ "${{ inputs.simular }}" = "true" ]; then
+            python preguntas_cron.py --simular
+          else
+            python preguntas_cron.py
+          fi
+
+      - name: Limpiar credenciales
+        if: always()
+        run: rm -f .streamlit/secrets.toml

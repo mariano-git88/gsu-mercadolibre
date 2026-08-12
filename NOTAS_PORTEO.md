@@ -64,9 +64,16 @@ documentos del período de facturación (404) y buscador público por nickname
 
 - **Full no aplica**: no hay una sola publicación en Full. La sección entera
   y `full.py` sobran.
-- **Preguntas con IA no es viable**: el motor se apoya en BM25 sobre el
-  histórico de respuestas propias, y acá hay 33 en toda la historia de la
-  cuenta. No hay con qué. Dejar `ia_activa` apagado.
+- ~~**Preguntas con IA no es viable**~~ — **CORREGIDO el 12/08/2026, sí es
+  viable y quedó activo.** El razonamiento original medía la base por TAMAÑO
+  (33 preguntas) cuando lo que importa es la REPETICIÓN. El 35% de las
+  preguntas de esta cuenta son de logística y se contestan casi textualmente
+  igual: "no contamos con local físico" aparece 10 veces en el historial y
+  "realizamos envíos a todo el país" 11. BM25 matchea eso perfecto.
+  Probado contra las últimas 6 preguntas reales: respondió 5 bien (una mejor
+  que la persona, linkeando el modelo alternativo correcto) y se abstuvo en 1
+  detectando sola que el historial se contradecía sobre el retiro.
+  Ver `responder_preguntas.yml`.
 - **107 publicaciones en revisión** son el 15% del catálogo y no se pueden
   vender. Es el hallazgo más accionable de la radiografía.
 - El volumen es **~3% del argentino**. Buena parte de la maquinaria analítica

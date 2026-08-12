@@ -608,6 +608,9 @@ def borrador(ml, question_id, item_id, texto_pregunta, nick=""):
     if not r.get("respuesta"):
         return "", (f"La IA sigue sin poder responderla: {r.get('motivo','')}"
                     [:300])
+    ok_txt, detalle_txt = revisar_texto(r["respuesta"])
+    if not ok_txt:
+        return r["respuesta"], (f"OJO, revisá el texto antes de publicar: {detalle_txt}")
     aviso = ""
     if r.get("confianza") == "baja" or not r.get("responder"):
         aviso = (f"Ojo, la IA tiene poca certeza: {r.get('motivo','')[:200]}. "
@@ -666,6 +669,55 @@ def ya_procesadas():
     filas = almacen.leer_hoja(HOJA_RESPUESTAS, COLS_RESPUESTAS)
     return {str(f.get("question_id")) for f in filas
             if str(f.get("estado", "")).strip() not in ESTADOS_REINTENTABLES}
+
+
+# ---------------------------------------------------------------------------
+# Control de calidad del texto antes de publicar
+# ---------------------------------------------------------------------------
+#
+# El modelo a veces escribe mal la marca y se corrige a si mismo a mitad de la
+# frase: "lo determina Mercado Ubre... perdon, Mercado Libre". Medido en
+# Uruguay: 3 de 10 corridas de la misma pregunta. NO viene del contexto (no hay
+# ningun "Ubre" en el historial ni en las fuentes), lo genera el modelo solo, y
+# se nota mas donde el historial es flaco: en Argentina, con 1.068 preguntas de
+# base, 0 de 38 publicadas lo tienen.
+#
+# Como acá se publica sin que nadie mire, un texto asi le llega al comprador.
+# El guard lo detecta, se reintenta una vez y si vuelve a salir mal la pregunta
+# queda para una persona.
+#
+# Ojo con los falsos positivos: "¡Perdon por la demora en responder!" es una
+# frase legitima y usada. Por eso no se prohibe "perdon" suelto, sino el patron
+# de AUTOCORRECCION (puntos suspensivos + perdon, "quise decir", "corrijo") y
+# la marca escrita mal.
+
+PATRONES_SOSPECHOSOS = [
+    # "Mercado" seguido de algo que NO sea una marca real de ML. Pago, Envios,
+    # Shops y Puntos son productos legitimos que pueden aparecer en una
+    # respuesta; cualquier otra cosa es la marca escrita mal.
+    (r"Mercado\s+(?!Libre\b|Pago\b|Env[ií]os\b|Shops\b|Puntos\b|Cr[eé]dito\b|Play\b|Ads\b)"
+     r"[A-Za-zÁÉÍÓÚáéíóúñÑ]+", "escribió mal 'Mercado Libre'"),
+    (r"(\.\.\.|…)\s*perd[oó]n", "se corrige a mitad de la frase"),
+    (r"\bquise decir\b", "se corrige a mitad de la frase"),
+    (r"\bcorrijo\b", "se corrige a mitad de la frase"),
+]
+
+
+def revisar_texto(texto):
+    """
+    (ok, motivo) — ¿este texto se puede publicar tal cual?
+
+    Solo mira defectos de forma evidentes. No juzga si la respuesta es
+    correcta: de eso se ocupa el propio modelo con `responder`/`confianza`.
+    """
+    t = str(texto or "")
+    if not t.strip():
+        return False, "el texto vino vacío"
+    for patron, motivo in PATRONES_SOSPECHOSOS:
+        m = re.search(patron, t, re.I)
+        if m:
+            return False, f"{motivo}: «{t[max(0, m.start() - 30):m.end() + 30].strip()}»"
+    return True, ""
 
 
 def procesar(ml, publicar_de_verdad=False, callback=None):
@@ -731,10 +783,29 @@ def procesar(ml, publicar_de_verdad=False, callback=None):
             continue
 
         fallo = None
+        pregunta_ctx = {"texto": texto_p,
+                        "nick": (q.get("from") or {}).get("nickname")}
         try:
-            r = redactar({"texto": texto_p,
-                          "nick": (q.get("from") or {}).get("nickname")},
-                         item, similares, previas, firma)
+            r = redactar(pregunta_ctx, item, similares, previas, firma)
+            # Control de forma. Si el texto sale con un artefacto de
+            # redaccion se reintenta UNA vez: el modelo no es determinista y
+            # la segunda suele salir limpia. Si vuelve a fallar, no se
+            # publica — queda para una persona.
+            if r.get("responder") and r.get("respuesta"):
+                ok_txt, detalle_txt = revisar_texto(r["respuesta"])
+                if not ok_txt:
+                    print(f"[preguntas] reintento por texto sospechoso "
+                          f"({q.get('id')}): {detalle_txt}")
+                    r2 = redactar(pregunta_ctx, item, similares, previas, firma)
+                    ok2, detalle2 = revisar_texto(r2.get("respuesta", ""))
+                    if r2.get("responder") and ok2:
+                        r = r2
+                    else:
+                        r = dict(r)
+                        r["responder"] = False
+                        r["motivo"] = ("El borrador salió con un problema de "
+                                       f"redacción en los dos intentos ({detalle_txt}). "
+                                       "Lo dejo para que lo escriba una persona.")
         except Exception as e:
             # Un fallo tecnico NO es lo mismo que "el contexto no alcanzaba":
             # confundirlos hace que un problema de configuracion parezca una
