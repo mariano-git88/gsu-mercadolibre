@@ -4394,7 +4394,11 @@ elif seccion == "Preguntas":
     # cada render es lento y hace pegarle al límite de la API de Google.
     @st.cache_data(ttl=60, show_spinner=False)
     def _met(con_historial):
-        return preg.metricas(incluir_historial=con_historial)
+        # Va `ml` para que "Esperando respuesta" cruce contra MercadoLibre:
+        # una pregunta contestada desde el panel de ML queda abierta en el
+        # registro para siempre, y el contador mostraba pendientes que no
+        # existían mientras la bandeja decía que no quedaba ninguna.
+        return preg.metricas(incluir_historial=con_historial, ml=ml)
 
     try:
         cfg = preg.config()
@@ -4414,11 +4418,18 @@ elif seccion == "Preguntas":
     m2.metric("Resueltas a mano", met.get("resueltas_a_mano", 0),
               help="Las que respondió una persona desde Gestión manual")
     m3.metric("Esperando respuesta", met["derivadas_a_persona"],
-              help="Siguen abiertas: miralas en Gestión manual")
+              help="Preguntas que la IA derivó y que MercadoLibre confirma "
+                   "que siguen sin responder. Miralas en Gestión manual."
+                   if met.get("pendientes_verificados") else
+                   "Abiertas en el registro de la IA. **No se pudo confirmar "
+                   "contra MercadoLibre**, así que puede incluir preguntas ya "
+                   "contestadas desde el panel de ML.")
     m4.metric("Se resolvieron solas",
-              f"{met['tasa_automatica']:.0%}" if met["respondidas_ia"] +
-              met["derivadas_a_persona"] else "—",
-              help="Del total que procesó la IA, cuántas pudo cerrar sin ayuda")
+              f"{met['tasa_automatica']:.0%}" if met.get("preguntas_unicas")
+              else "—",
+              help=f"De las {met.get('preguntas_unicas', 0)} preguntas que "
+                   "procesó la IA, cuántas pudo cerrar sin ayuda. Es "
+                   "acumulado desde que se activó, no de hoy.")
 
     c1, c2, c3 = st.columns([1.3, 1.3, 2])
     c1.metric("Estado", "Activa" if activa else "Apagada")

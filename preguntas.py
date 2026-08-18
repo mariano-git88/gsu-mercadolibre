@@ -952,15 +952,33 @@ def historial():
 
 VACIAS = {"respondidas_ia": 0, "resueltas_a_mano": 0,
           "derivadas_a_persona": 0, "con_error": 0,
+          "pendientes_verificados": False, "preguntas_unicas": 0,
+          "filas_registro": 0,
           "tasa_automatica": 0.0, "historial_total": 0,
           "historial_respondidas": 0, "historial_por_ia": 0,
           "historial_por_persona": 0, "error": ""}
 
 
-def metricas(incluir_historial=False):
+def metricas(incluir_historial=False, ml=None):
     """
     Contadores acumulados. `respondidas_ia` es el numero que interesa: cuantas
     preguntas contesto la IA sola desde que se activo.
+
+    **Se cuenta por pregunta, no por fila.** El registro guarda una fila por
+    intento, asi que una pregunta que fallo y despues se publico deja dos —y
+    la vieja seguia contando como abierta para siempre. Medido el 18/08/2026:
+    109 filas para **73 preguntas**, y el contador de pendientes decia 40
+    donde habia 6. Vale el ultimo estado de cada `question_id`, igual que en
+    `bandeja()`. (Los numeros son de la cuenta argentina, donde aparecio.)
+
+    **Y `derivadas_a_persona` se cruza contra MercadoLibre si se pasa `ml`.**
+    Una pregunta que alguien contesto desde el panel de ML sigue abierta en el
+    registro, porque nadie la vuelve a tocar. Sin ese cruce la app mostraba
+    "Esperando respuesta: 40" arriba y "No queda ninguna pregunta pendiente"
+    abajo, en la misma pantalla: las 6 que quedaban ya estaban respondidas
+    afuera. Sin `ml` se devuelve lo que dice el registro y
+    `pendientes_verificados` queda en False, para que quien muestre el numero
+    sepa que no esta confirmado.
 
     Por defecto **no** lee el historial completo: son ~1.000 filas y esto se
     llama en cada render de la seccion, lo que ademas de lento hace pegarle al
@@ -977,17 +995,39 @@ def metricas(incluir_historial=False):
         m["error"] = f"No pude leer el registro de la IA: {str(e)[:200]}"
         return m
 
-    estados = [str(f.get("estado", "")).strip() for f in reg]
+    # El ultimo estado de cada pregunta es el que vale.
+    ultimo = {}
+    for f in reg:
+        ultimo[str(f.get("question_id"))] = f
+
+    estados = [str(f.get("estado", "")).strip() for f in ultimo.values()]
     publicadas = estados.count("publicada")
     a_mano = estados.count("publicada_por_persona")
-    # Las abiertas son las que siguen esperando a una persona.
-    revisar = sum(estados.count(e) for e in ESTADOS_ABIERTOS)
-    procesadas = publicadas + revisar
+    abiertas = [q for q, f in ultimo.items()
+                if str(f.get("estado", "")).strip() in ESTADOS_ABIERTOS]
+    # La tasa es sobre **todo lo que la IA proceso**, no sobre publicadas mas
+    # abiertas: si no, cada vez que una persona cierra un caso derivado el
+    # denominador baja y la tasa sube sola.
+    procesadas = len(ultimo)
+
+    verificados = False
+    if ml is not None:
+        try:
+            vivas = {str(q.get("id")) for q in pendientes_respondibles(ml)}
+            abiertas = [q for q in abiertas if q in vivas]
+            verificados = True
+        except Exception:
+            # Si ML no contesta se muestra lo del registro, avisando que no
+            # esta confirmado. Es peor no mostrar nada.
+            pass
 
     m.update({
         "respondidas_ia": publicadas,
         "resueltas_a_mano": a_mano,
-        "derivadas_a_persona": revisar,
+        "derivadas_a_persona": len(abiertas),
+        "pendientes_verificados": verificados,
+        "preguntas_unicas": len(ultimo),
+        "filas_registro": len(reg),
         "con_error": estados.count("error_al_publicar") + estados.count("error_tecnico"),
         "tasa_automatica": (publicadas / procesadas) if procesadas else 0.0,
     })
