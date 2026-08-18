@@ -1004,10 +1004,32 @@ def proteger_companeros(plan, df_ads, accion="pausar"):
     grupo entero — es preferible dejar gastando a un anuncio que no califica
     antes que apagar uno que si.
 
+    **Solo cuenta el companero al que la accion le cambiaria algo** (18/08/2026,
+    unificando el criterio con CRAFTERS). Antes frenaba por cualquier companero
+    fuera del plan, incluido uno en `hold` o `idle`: apagar el ad_group no le
+    hace nada a una publicacion que ya no corre, asi que frenar por ella es
+    frenar de gusto. Medido el 18/08/2026 sobre los **38 anuncios `active` de
+    la cuenta, en 32 ad_groups**: el criterio viejo frenaba **30 de 38** —el
+    79%, casi siempre por una hermana en `hold`, que ML deshabilito y no se
+    mueve— y este no frena ninguno.
+
+    Que estado importa depende de la accion — apagando molesta la hermana que
+    **corre**, encendiendo molesta la que esta **quieta** y arrancaria a
+    gastar. Sale de `panel_ads.ARRASTRE`.
+
     Devuelve (plan_filtrado, df_frenados) para poder decir en pantalla cuales
     quedaron afuera y por que.
+
+    **Ojo con el dato del que se alimenta.** Esto mira `df_ads`, o sea
+    `ads/search`, que **no devuelve los anuncios sin actividad en la ventana**.
+    Para apagar alcanza (lo que gasta esta en el listado); para **sumar** no,
+    porque los candidatos a sumar son justo los que faltan y ningun ad_group
+    apareceria completo: ahi va `panel_ads.hermanos_arrastrados()`, que
+    pregunta a la API.
     """
     import pandas as pd
+
+    import panel_ads
 
     if plan is None or not len(plan) or df_ads is None or not len(df_ads):
         return plan, pd.DataFrame()
@@ -1015,8 +1037,13 @@ def proteger_companeros(plan, df_ads, accion="pausar"):
         return plan, pd.DataFrame()
 
     marcados = set(plan[plan["accion"] == accion]["item_id"])
-    # Para cada ad_group del plan, todas las publicaciones que viven adentro.
+    # Para cada ad_group del plan, las publicaciones que viven adentro **y a
+    # las que la accion les cambiaria el estado**.
     companeros = df_ads[df_ads["ad_group_id"].isin(plan["ad_group_id"])]
+    pesan = panel_ads.ARRASTRE.get(accion)
+    if pesan and "estado_ad" in companeros:
+        companeros = companeros[companeros["estado_ad"].isin(pesan)
+                                | companeros["item_id"].isin(marcados)]
     completos = companeros.groupby("ad_group_id")["item_id"].apply(
         lambda s: set(s).issubset(marcados))
 

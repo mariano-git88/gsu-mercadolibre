@@ -270,6 +270,37 @@ def test_no_arrastrar_companeros_de_ad_group():
     chequear(sorted(ok2["item_id"]) == ["A", "B", "C"],
              "si TODAS las del grupo estan marcadas, si lo toca")
 
+    # **Solo pesa el companero al que la accion le cambiaria algo.** Apagar un
+    # ad_group no le hace nada a una publicacion que ya esta en `hold`, asi
+    # que frenar por ella es frenar de gusto.
+    ads_est = pd.DataFrame(
+        [{"item_id": "A", "ad_group_id": 1, "estado_ad": "active"},
+         {"item_id": "B", "ad_group_id": 1, "estado_ad": "hold"},
+         {"item_id": "C", "ad_group_id": 2, "estado_ad": "active"}])
+    ok3, fren3 = publicidad.proteger_companeros(plan, ads_est)
+    chequear(sorted(ok3["item_id"]) == ["A", "C"],
+             "un companero en hold no frena el apagado",
+             f"iba a pausar {list(ok3['item_id'])}")
+    chequear(len(fren3) == 0, "y no frena nada")
+
+    # Pero si el companero corre, sigue frenando.
+    ads_viva = ads_est.copy()
+    ads_viva.loc[ads_viva["item_id"] == "B", "estado_ad"] = "active"
+    ok4, fren4 = publicidad.proteger_companeros(plan, ads_viva)
+    chequear(list(ok4["item_id"]) == ["C"],
+             "un companero corriendo si frena el apagado",
+             f"iba a pausar {list(ok4['item_id'])}")
+
+    # Encendiendo se mira al reves: molesta la que esta quieta.
+    plan_on = pd.DataFrame(
+        [{"item_id": "A", "ad_group_id": 1, "accion": "agregar"}])
+    ads_quieta = pd.DataFrame(
+        [{"item_id": "A", "ad_group_id": 1, "estado_ad": "idle"},
+         {"item_id": "B", "ad_group_id": 1, "estado_ad": "idle"}])
+    ok5, _ = publicidad.proteger_companeros(plan_on, ads_quieta, "agregar")
+    chequear(len(ok5) == 0,
+             "encender arrastraria a una hermana quieta, asi que se frena")
+
 
 def test_no_publicitar_lo_que_pierde_plata():
     """
