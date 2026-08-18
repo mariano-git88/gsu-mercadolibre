@@ -316,6 +316,156 @@ def despertar_campanas(sesion, ml, plan, callback=None):
     return prendidas
 
 
+OBJETIVO = {"pausar": "PAUSED", "activar": "ACTIVE"}
+
+
+def resolver_para_escribir(ml, plan, accion="pausar", callback=None):
+    """
+    El `ad_group` que hay que tocar de verdad. Devuelve (plan, descartes).
+
+    **El plan sale de `ads/search`, que viene atrasado.** El estado que trae
+    no es el de hoy: se vieron anuncios listados como `delegated` que al
+    preguntarle a `ad_groups/{id}` estaban IDLE, HOLD o directamente ya no
+    existian. Mandar eso al panel devuelve errores que parecen un problema de
+    sesion y son el listado viejo.
+
+    Por eso aca se le pregunta a ML de nuevo, anuncio por anuncio:
+
+      - `ads/{item_id}` da el ad_group de la campana donde el anuncio corre
+      - `ad_groups/{id}` da el estado y la campana **de hoy**
+
+    Son dos llamadas por anuncio, pero es justo el dato que el listado tiene
+    atrasado. Lo que no se puede tocar sale por `descartes` con el motivo.
+
+    Portado de CRAFTERS (18/08/2026), donde el mismo problema devolvia 409 en
+    856 de 1.104 escrituras. Ver `hermanos_arrastrados` alla y
+    `publicidad.proteger_companeros()` aca: son la misma familia de cuidados.
+    """
+    import publicidad
+
+    filas, descartes, total = [], [], len(plan)
+
+    def descartar(f, motivo, ag=None):
+        # Se pisa el ad_group con el que ML dice hoy: dejar el del plan hacia
+        # que el descarte hablara de un anuncio distinto al que se miro.
+        d = f.to_dict()
+        if ag is not None:
+            d["ad_group_id"] = int(ag)
+        d["descarte"] = motivo
+        descartes.append(d)
+
+    for n, (_, f) in enumerate(plan.iterrows(), 1):
+        if callback and (n % 10 == 0 or n == total):
+            callback(n, total, "preguntandole a ML por cada anuncio")
+
+        item = f.get("item_id")
+        ad = publicidad.leer_ad(ml, item) if item else None
+        ag = (ad or {}).get("ad_group_id") or f.get("ad_group_id")
+        if not ag:
+            descartar(f, "no tiene anuncio en ML")
+            continue
+
+        try:
+            g = ml.get(publicidad._ruta_ad_group(ag),
+                       _headers=publicidad.CABECERA)
+        except Exception:
+            # `ads/search` devuelve ad_groups que ya no existen.
+            descartar(f, f"ML ya no reconoce el ad_group {ag}", ag)
+            continue
+
+        estado = str((g or {}).get("status") or "").upper()
+        camp = int((g or {}).get("campaign_id") or 0)
+        adv = (g or {}).get("advertiser_id") or f.get("advertiser_id")
+
+        if not camp:
+            descartar(f, "no esta en ninguna campana: lo administra ML "
+                         "(delegado). Hay que sacarlo desde el panel.", ag)
+            continue
+        if estado == OBJETIVO.get(accion):
+            descartar(f, f"ya estaba {estado.lower()}", ag)
+            continue
+        if estado == "HOLD":
+            descartar(f, "ML lo deshabilito (hold)", ag)
+            continue
+
+        nueva = f.to_dict()
+        nueva.update(ad_group_id=int(ag), campaign_id=camp,
+                     advertiser_id=int(adv), estado_previo=estado)
+        filas.append(nueva)
+
+    cols = plan.columns.tolist() + ["estado_previo"]
+    return (pd.DataFrame(filas) if filas else pd.DataFrame(columns=cols),
+            pd.DataFrame(descartes))
+
+
+# Que estados de hermana importan segun lo que se va a hacer. Apagando, el
+# riesgo es tumbar a una que **corre**; encendiendo, es prender a una que
+# esta **quieta** y ponerla a gastar. Mirar la lista equivocada no avisa nada.
+ARRASTRE = {"pausar": ("active", "delegated"),
+            "agregar": ("idle", "paused"),
+            "activar": ("idle", "paused")}
+
+
+def hermanos_arrastrados(ml, plan, estados=("active", "delegated"),
+                         callback=None):
+    """
+    Las publicaciones que se van a apagar **de arrastre**, sin estar en el plan.
+
+    **Un ad_group no es una publicacion: es una familia.** El estado vive en
+    el ad_group, asi que tocar uno toca a todas las publicaciones que viven
+    adentro. Medido en esta cuenta el 18/08/2026: de **326 ad_groups, 53
+    tienen mas de una publicacion** y el mayor agrupa 8.
+
+    Hermana de `publicidad.proteger_companeros()`, que hace lo mismo sin
+    llamadas usando el listado que ya esta en memoria. Se usa esta cuando el
+    listado no alcanza: `ads/search` **no devuelve los anuncios sin actividad
+    en la ventana**, que son justo los candidatos a sumar.
+    """
+    import collections
+    import publicidad
+
+    if not len(plan) or "ad_group_id" not in plan:
+        return pd.DataFrame()
+
+    quiero = {int(a) for a in plan["ad_group_id"].dropna()}
+    en_plan = {str(i) for i in plan.get("item_id", pd.Series(dtype=str))}
+    advs = sorted({int(a) for a in plan["advertiser_id"].dropna()})
+
+    fuera = []
+    for adv in advs:
+        if callback:
+            callback(f"Buscando hermanos en el anunciante {adv}...")
+        base = publicidad.BASE.format(site=publicidad.SITE_ID, adv=adv)
+        off = 0
+        while True:
+            try:
+                r = ml.get(f"{base}/ads/search", _headers=publicidad.CABECERA,
+                           limit=50, offset=off)
+            except Exception:
+                break
+            res = r.get("results") or []
+            if not res:
+                break
+            for a in res:
+                ag = a.get("ad_group_id")
+                if (ag and int(ag) in quiero
+                        and str(a.get("item_id")) not in en_plan):
+                    fuera.append({
+                        "ad_group_id": int(ag),
+                        "item_id": a.get("item_id"),
+                        "titulo": (a.get("title") or "")[:60],
+                        "estado_ad": a.get("status"),
+                        "anunciante": adv})
+            off += 50
+
+    df = pd.DataFrame(fuera)
+    # `hold` y `deleted` no se mueven en ningun sentido: contarlos como danio
+    # colateral asusta con algo que no pasa.
+    if len(df):
+        df = df[df["estado_ad"].isin(estados)]
+    return df.reset_index(drop=True)
+
+
 def aplicar(sesion, ml, plan, accion="pausar", callback=None, verificar=True):
     """
     Aplica `accion` ('pausar' / 'activar' / 'sacar') sobre el plan.
@@ -326,11 +476,16 @@ def aplicar(sesion, ml, plan, accion="pausar", callback=None, verificar=True):
     """
     salida = []
     faltan = plan[plan["ad_group_id"].notna()]
-    total = len(faltan)
+    # **Un ad_group va una sola vez.** Como agrupa una familia entera, dos
+    # publicaciones del plan pueden compartirlo —en esta cuenta 53 de 326
+    # ad_groups tienen mas de una, y el mayor agrupa 8—; mandarlo repetido en
+    # el mismo lote es pedir dos veces lo mismo. El resultado despues se
+    # reparte a todas las filas que lo comparten.
+    total = faltan["ad_group_id"].nunique()
     hechos = 0
 
     for (adv, camp), g in faltan.groupby(["advertiser_id", "campaign_id"]):
-        ids = [int(x) for x in g["ad_group_id"]]
+        ids = sorted({int(x) for x in g["ad_group_id"]})
         por_lote = LOTES.get(accion, 50)
         for i in range(0, len(ids), por_lote):
             lote = ids[i:i + por_lote]
@@ -342,20 +497,38 @@ def aplicar(sesion, ml, plan, accion="pausar", callback=None, verificar=True):
                 estado = "paused" if accion == "pausar" else "active"
                 ok, fallidos = cambiar(sesion, lote, adv, camp, estado)
 
-            detalle = ((fallidos or [{}])[0].get("message")
-                       or (fallidos or [{}])[0].get("error") or "")
+            # **El error se mapea por id, no se copia del primero.** Antes se
+            # tomaba `fallidos[0]` y se pegaba igual en todas las filas del
+            # lote, asi que la tabla repetia el mismo texto y no se podia
+            # saber por que habia fallado cada uno. Cuando el fallo es del
+            # lote entero (un HTTP 4xx, la sesion vencida) no hay ids y ahi
+            # si vale para todos, pero se dice que es del lote.
+            por_id, del_lote = {}, ""
+            for f in (fallidos or []):
+                msg = f.get("message") or f.get("error") or ""
+                fid = f.get("id") or f.get("adGroupId") or f.get("ad_group_id")
+                if fid is not None:
+                    por_id[str(fid)] = msg
+                elif not del_lote:
+                    del_lote = f"todo el lote: {msg}" if msg else ""
             for ag in lote:
-                fila = g[g["ad_group_id"] == ag].iloc[0]
-                salida.append({
-                    "item_id": fila.get("item_id"), "ad_group_id": ag,
-                    "titulo": fila.get("titulo", ""),
-                    "gasto": fila.get("gasto", 0),
-                    "motivo": fila.get("motivo", ""),
-                    "resultado": "OK" if str(ag) in ok else "ERROR",
-                    "detalle": "" if str(ag) in ok else str(detalle)[:150],
-                    "estado_real": (estado_real(ml, ag)
-                                    if verificar and str(ag) in ok else ""),
-                })
+                bien = str(ag) in ok
+                # Una sola lectura por ad_group aunque lo compartan varias
+                # publicaciones: es una llamada a ML, no sale gratis.
+                real = estado_real(ml, ag) if verificar and bien else ""
+                for _, fila in g[g["ad_group_id"] == ag].iterrows():
+                    salida.append({
+                        "item_id": fila.get("item_id"), "ad_group_id": ag,
+                        "titulo": fila.get("titulo", ""),
+                        "gasto": fila.get("gasto", 0),
+                        "motivo": fila.get("motivo", ""),
+                        "resultado": "OK" if bien else "ERROR",
+                        "detalle": "" if bien else str(
+                            por_id.get(str(ag))
+                            or del_lote
+                            or "el panel no lo acepto y no dijo por que")[:200],
+                        "estado_real": real,
+                    })
             hechos += len(lote)
             if callback:
                 callback(hechos, total, f"anunciante {adv}, campaña {camp}")

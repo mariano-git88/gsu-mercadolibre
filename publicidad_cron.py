@@ -192,6 +192,26 @@ def correr(aplicar=False, verbose=True, log=None, conv=None, ml=None):
 
     ok, res = 0, pd.DataFrame()
     if len(apagar):
+        # **El plan no se manda tal cual.** `ads/search` viene atrasado: el
+        # estado que trae no es el de hoy, y mandar eso al panel devuelve
+        # errores que parecen problema de sesion y son el listado viejo.
+        apagar, descartes = panel_ads.resolver_para_escribir(
+            ml, apagar, accion="pausar",
+            callback=lambda i, t, d: log(f"  resolviendo {i}/{t}"))
+        if len(descartes):
+            log(f"\nDescartados {len(descartes)} que el panel no puede tocar:")
+            for motivo, n in descartes["descarte"].value_counts().items():
+                log(f"  {n:>5}  {motivo}")
+
+        # **No se apaga nada que arrastre a un companero.** `proteger_companeros`
+        # estaba escrito y con test desde el 05/08, cuando apagar 19 anuncios
+        # se llevo puestos 4 que si calificaban — pero **no lo llamaba nadie**.
+        apagar, frenados = publicidad.proteger_companeros(apagar, df, "pausar")
+        if len(frenados):
+            log(f"\nFrenados {len(frenados)} porque comparten ad_group con una "
+                "publicacion que no hay que tocar. Revisalos en la app.")
+
+    if len(apagar):
         res = panel_ads.aplicar(sesion, ml, apagar, accion="pausar",
                                 callback=lambda i, t, d: log(f"  {i}/{t} {d}"))
         ok = int((res["resultado"] == "OK").sum())
@@ -206,6 +226,25 @@ def correr(aplicar=False, verbose=True, log=None, conv=None, ml=None):
         if not len(sumar) or "accion" not in sumar:
             break
         filas = sumar[sumar["accion"] == acc]
+        if not len(filas):
+            continue
+        # Mismo cuidado que al apagar, y aca importa mas: encender de
+        # arrastre pone a gastar publicaciones que nadie evaluo.
+        #
+        # **Aca NO sirve `proteger_companeros`**, aunque sea la funcion hecha
+        # para esto: se apoya en `df` y `ads/search` **no devuelve los
+        # anuncios sin actividad en la ventana**, que son justo los que se
+        # van a sumar. Sin sus filas, ningun ad_group aparece "completo" y
+        # frenaria el 100% del plan sin que se note. Se le pregunta a la API.
+        arr2 = panel_ads.hermanos_arrastrados(
+            ml, filas, estados=panel_ads.ARRASTRE[acc])
+        if len(arr2):
+            con_familia = set(arr2["ad_group_id"])
+            n_frena = int(filas["ad_group_id"].isin(con_familia).sum())
+            filas = filas[~filas["ad_group_id"].isin(con_familia)]
+            log(f"{acc}: frenados {n_frena} porque encenderlos arrancaria "
+                f"{len(arr2)} publicaciones que hoy estan quietas y no estan "
+                "en el plan.")
         if not len(filas):
             continue
         res2 = panel_ads.aplicar(sesion, ml, filas, accion=acc,

@@ -3277,6 +3277,12 @@ elif seccion == "Publicidad":
                         plan_ads = pd.concat([plan_ads, nuevos],
                                              ignore_index=True)
                     st.session_state["pub_plan"] = plan_ads
+                    # Hacen falta para resolver los candidatos a sumar: sin
+                    # los estados de campaña no se puede distinguir "activar
+                    # donde está" de "mudarlo a una campaña que corra".
+                    st.session_state["pub_camps"] = {
+                        c["id"]: c.get("status")
+                        for cs in (camps_pub or {}).values() for c in cs}
             except Exception as e:
                 paso.empty()
                 st.error(f"No pude analizar: {type(e).__name__}: {e}")
@@ -3436,13 +3442,134 @@ elif seccion == "Publicidad":
                         "empezar a gastar en mil quinientos anuncios que "
                         "nadie revisó, no sumar 24.", icon="🚨")
 
+            # ---- Revisar contra ML antes de escribir -------------------
+            # `ads/search` viene atrasado: el estado que trae no es el de hoy
+            # y los candidatos a sumar llegan **sin ad_group**, porque el
+            # listado no devuelve los anuncios sin actividad en la ventana.
+            # Sin este paso, apagar cosecha errores y sumar se cae en
+            # silencio (`aplicar` filtra los que no tienen ad_group).
+            revisables = tuple(a for a in elegidas
+                               if a in ("pausar", "activar", "agregar"))
+            firma = (elegidas, cuantas, como_apagar)
+            if st.session_state.get("pub_firma") != firma:
+                for k in ("pub_plan_rev", "pub_desc", "pub_arr"):
+                    st.session_state.pop(k, None)
+
+            if revisables and st.button(
+                    "Revisar contra MercadoLibre", key="pub_rev"):
+                b2 = st.progress(0.0, text="Resolviendo...")
+                plan_r, desc_r = [], []
+
+                f_apagar = ejecutar[ejecutar["accion"] == "pausar"]
+                if "pausar" in revisables and len(f_apagar):
+                    pr, de = panel_ads.resolver_para_escribir(
+                        ml, f_apagar, accion="pausar",
+                        callback=lambda i, t, d: b2.progress(
+                            min(i / max(t, 1), 1.0),
+                            text=f"apagar: {i} de {t}"))
+                    plan_r.append(pr)
+                    desc_r.append(de)
+
+                sumables = tuple(a for a in revisables
+                                 if a in ("agregar", "activar"))
+                f_sumar = ejecutar[ejecutar["accion"].isin(sumables)]
+                if len(f_sumar):
+                    b2.progress(0.0, text="Resolviendo los que se suman...")
+                    rc = publicidad.resolver_candidatos(
+                        ml, f_sumar,
+                        estados_camp=st.session_state.get("pub_camps") or {},
+                        callback=lambda m: b2.progress(0.0, text=str(m)))
+                    if rc is not None and len(rc):
+                        sirven = rc[rc["accion"].isin(sumables)
+                                    & rc["ad_group_id"].notna()]
+                        fuera = rc[~rc.index.isin(sirven.index)].copy()
+                        if len(fuera):
+                            fuera["descarte"] = fuera.get(
+                                "motivo", "no se puede sumar")
+                            desc_r.append(fuera)
+                        plan_r.append(sirven)
+
+                plan_r = (pd.concat(plan_r, ignore_index=True)
+                          if plan_r else pd.DataFrame())
+                b2.progress(1.0, text="Buscando publicaciones de arrastre...")
+                arrs = []
+                for acc, ests in panel_ads.ARRASTRE.items():
+                    f_acc = (plan_r[plan_r["accion"] == acc]
+                             if len(plan_r) else plan_r)
+                    if not len(f_acc):
+                        continue
+                    a = panel_ads.hermanos_arrastrados(ml, f_acc, estados=ests)
+                    if len(a):
+                        a["por"] = acc
+                        arrs.append(a)
+                b2.empty()
+                st.session_state["pub_arr"] = (
+                    pd.concat(arrs, ignore_index=True) if arrs
+                    else pd.DataFrame())
+                st.session_state["pub_plan_rev"] = plan_r
+                st.session_state["pub_desc"] = (
+                    pd.concat(desc_r, ignore_index=True)
+                    if desc_r else pd.DataFrame())
+                st.session_state["pub_firma"] = firma
+
+            plan_rev = st.session_state.get("pub_plan_rev")
+            if plan_rev is not None:
+                desc = st.session_state.get("pub_desc")
+                arr = st.session_state.get("pub_arr")
+                n_ag = (plan_rev["ad_group_id"].nunique()
+                        if len(plan_rev) else 0)
+                st.info(
+                    f"**Quedan {len(plan_rev)} publicaciones para tocar, en "
+                    f"{n_ag} anuncios de MercadoLibre.**", icon="🔍")
+
+                if desc is not None and len(desc):
+                    st.warning(
+                        f"**{len(desc)} se descartaron**: pedírselas al panel "
+                        "devuelve error y no cambia nada.", icon="🧹")
+                    with st.expander(f"Ver las {len(desc)} descartadas"):
+                        st.dataframe(
+                            desc["descarte"].value_counts()
+                            .rename_axis("motivo").reset_index(name="cuántas"),
+                            use_container_width=True, hide_index=True)
+                        st.dataframe(desc, use_container_width=True,
+                                     hide_index=True)
+
+                if arr is not None and len(arr):
+                    n_off = int((arr["por"] == "pausar").sum())
+                    n_on = len(arr) - n_off
+                    partes_arr = []
+                    if n_off:
+                        partes_arr.append(
+                            f"**se apagan {n_off} publicaciones más** que hoy "
+                            "están corriendo")
+                    if n_on:
+                        partes_arr.append(
+                            f"**se encienden {n_on} publicaciones más**, que "
+                            "arrancan a gastar")
+                    st.error(
+                        "Un anuncio de MercadoLibre no es una publicación: es "
+                        "una *familia*, y el estado vive en la familia. Al "
+                        f"tocar los {n_ag} de arriba, de arrastre "
+                        + " y ".join(partes_arr) + " y que no están en el "
+                        "plan.", icon="👨‍👩‍👧")
+                    with st.expander(f"Ver las {len(arr)} de arrastre"):
+                        st.dataframe(arr, use_container_width=True,
+                                     hide_index=True)
+
             op_pub = st.text_input("Tu nombre (queda en el registro)",
                                    key="pub_op")
             conf_pub = st.checkbox(
                 f"Confirmo que quiero aplicar {cuantas} cambios en la "
                 "publicidad de MercadoLibre", key="pub_conf")
+            # Sin revisar no se aplica: es el paso que evita mandarle al
+            # panel anuncios que no puede tocar y perder los que se suman.
+            falta_revisar = bool(revisables) and plan_rev is None
+            if falta_revisar:
+                st.caption("Primero **Revisar contra MercadoLibre**: sin eso "
+                           "no se sabe qué anuncio hay que tocar.")
             if st.button(f"Aplicar {cuantas} cambios", key="pub_go",
                          disabled=not (conf_pub and op_pub.strip() and cuantas
+                                       and not falta_revisar
                                        and panel_ads.hay_sesion())):
                 barra = st.progress(0.0, text="Aplicando...")
                 try:
@@ -3454,13 +3581,19 @@ elif seccion == "Publicidad":
                         st.session_state["pub_prendidas"] = (
                             panel_ads.despertar_campanas(
                                 sesion_ads, ml,
-                                ejecutar[ejecutar["accion"] == "agregar"],
+                                (plan_rev if plan_rev is not None
+                                 else ejecutar).pipe(
+                                    lambda d: d[d["accion"] == "agregar"]),
                                 callback=lambda m: barra.progress(
                                     0.0, text=str(m))))
                     # Cada acción va por separado: el endpoint de sacar de
                     # campaña es otro y acepta lotes mucho más chicos.
                     for acc in elegidas:
-                        filas = ejecutar[ejecutar["accion"] == acc]
+                        # Para pausar, activar y agregar va el plan ya
+                        # resuelto contra ML; para sacar, el original.
+                        base_acc = (plan_rev if acc in revisables
+                                    and plan_rev is not None else ejecutar)
+                        filas = base_acc[base_acc["accion"] == acc]
                         if not len(filas):
                             continue
                         partes.append(panel_ads.aplicar(
@@ -3476,6 +3609,10 @@ elif seccion == "Publicidad":
                     st.stop()
                 barra.empty()
                 st.session_state["pub_res"] = res_pub
+                # La revisión ya se usó: dejarla en pantalla invita a
+                # aplicarla de nuevo sobre estados que acaban de cambiar.
+                for k in ("pub_plan_rev", "pub_desc", "pub_arr", "pub_firma"):
+                    st.session_state.pop(k, None)
 
             prendidas = st.session_state.get("pub_prendidas")
             if prendidas:
@@ -3554,7 +3691,9 @@ elif seccion == "Publicidad":
             st.session_state["cron_log"] = "\n".join(lineas)
             if aplicar_pub:
                 # Los estados cambiaron: lo que estaba en pantalla quedó viejo.
-                st.session_state.pop("pub_plan", None)
+                for k in ("pub_plan", "pub_plan_rev", "pub_desc",
+                          "pub_arr", "pub_firma"):
+                    st.session_state.pop(k, None)
 
         if st.session_state.get("cron_log"):
             st.download_button(
