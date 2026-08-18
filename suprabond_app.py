@@ -340,9 +340,24 @@ def pisos_sku_de_marca(_pubs=None):
     return _pisos_sku_cache(st.session_state.get("sello_catalogo", 0))
 
 
-def aviso_piso_de_marca():
-    """Explica el piso una vez, donde se use. Devuelve cuántos lo tienen."""
+def aviso_piso_de_marca(al_escribir=False):
+    """
+    Explica el piso una vez, donde se use. Devuelve cuántos lo tienen.
+
+    `al_escribir` es para las pantallas que **aplican precios**. Sin piso, un
+    cartelito informativo no alcanza: la pantalla de tramos sugiere bajar a
+    $999 para cruzar el escalón de comisión, y **el piso de marca es lo único
+    que la frena**. Sin él, el freno que queda es el tope del 15% de cambio,
+    que no sabe nada de la política de marca.
+    """
     datos = _pisos_cache(st.session_state.get("sello_catalogo", 0))
+    # Se puede contar sin Contabilium: la marca sale del catálogo. Sirve para
+    # decir a cuántas publicaciones les falta la protección, en vez de hablar
+    # de un secret que no le dice nada a quien está por apretar el botón.
+    propias = sum(1 for p in activas
+                  if str(lista_gsu.marca_de(p) or "").strip().upper()
+                  in lista_gsu.MARCAS_PROPIAS)
+
     if datos.get("_error"):
         st.warning(
             f"**No pude leer la lista de precios de Contabilium**, así que "
@@ -350,9 +365,21 @@ def aviso_piso_de_marca():
             f"{datos['_error']}", icon="⚠️")
         return 0
     if not datos:
-        st.info(
-            "Sin `[contabilium]` en los secrets no hay piso de marca: la "
-            "herramienta trabaja solo con el margen.", icon="ℹ️")
+        if al_escribir:
+            st.error(
+                f"**El piso de marca no está activo: {propias} publicaciones "
+                "de Suprabond, Bulit y Somerset quedan sin protección.** "
+                f"La regla —nunca por debajo de {lista_gsu.MULTIPLICADOR} "
+                "veces el precio de lista de Contabilium— necesita la sección "
+                "`[contabilium]` en los secrets, y acá no está cargada. Lo "
+                "único que queda frenando es el tope de cambio del "
+                f"{tramos.TECHO_DE_CAMBIO:.0%}, que no sabe nada de la "
+                "política de marca. **Conviene cargar el secret antes de "
+                "aplicar precios.**", icon="🚨")
+        else:
+            st.info(
+                "Sin `[contabilium]` en los secrets no hay piso de marca: la "
+                "herramienta trabaja solo con el margen.", icon="ℹ️")
         return 0
     # Se cuenta sobre las activas: `traer_pisos` calcula también las pausadas
     # (para que el piso ya esté si alguna se reactiva), pero decir ese número
@@ -762,7 +789,7 @@ if seccion == "Plata sobre la mesa":
         if len(ejec):
             st.divider()
             st.markdown("##### Aplicar los cambios de precio")
-            aviso_piso_de_marca()
+            aviso_piso_de_marca(al_escribir=True)
 
             frenadas_pl = len(plata_mod.ejecutables(dpl)) - len(ejec)
             if frenadas_pl:
@@ -4199,7 +4226,7 @@ elif seccion == "Oportunidades":
             # ------------------------------------------- aplicar desde acá
             st.divider()
             st.markdown("##### Aplicar los precios desde acá")
-            aviso_piso_de_marca()
+            aviso_piso_de_marca(al_escribir=True)
             st.caption(
                 "Antes de escribir nada se vuelve a leer el precio actual de "
                 "cada publicación en MercadoLibre. El análisis sale del "
