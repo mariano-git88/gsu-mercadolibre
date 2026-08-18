@@ -66,15 +66,17 @@ CODIGOS_TRANSITORIOS = {429, 500, 502, 503, 504}
 INTENTOS = 4
 ESPERA_BASE = 2.0        # espera 2, 4 y 8 segundos: 14 en total
 
+# La cuota de Sheets se cuenta **por minuto**, asi que contra un 429 hay que
+# esperar a que se abra la ventana siguiente, no un par de segundos.
+ESPERA_CUOTA = (5.0, 15.0, 30.0)
+
 
 def _es_transitorio(e):
     """True si conviene reintentar: Google hipo, no configuracion mal puesta."""
     # gspread expone el codigo en la APIError. Preferimos el status HTTP real
     # porque .code sale del JSON del error y vale -1 si no se pudo parsear.
-    codigo = getattr(getattr(e, "response", None), "status_code", None)
-    if not isinstance(codigo, int):
-        codigo = getattr(e, "code", None)
-    if isinstance(codigo, int) and codigo > 0:
+    codigo = _codigo_de(e)
+    if codigo is not None:
         return codigo in CODIGOS_TRANSITORIOS
 
     # Sin codigo HTTP puede ser un corte de red, que tambien se arregla solo.
@@ -88,17 +90,35 @@ def _es_transitorio(e):
         return False
 
 
+def _codigo_de(e):
+    """El status HTTP del error de Google, o None."""
+    codigo = getattr(getattr(e, "response", None), "status_code", None)
+    if not isinstance(codigo, int):
+        codigo = getattr(e, "code", None)
+    return codigo if isinstance(codigo, int) and codigo > 0 else None
+
+
 def _reintentar(operacion):
-    """Corre la operacion, reintentando solo si Google contesto algo transitorio."""
+    """
+    Corre la operacion, reintentando solo si Google contesto algo transitorio.
+
+    **El 429 espera distinto que los demas.** La cuota de Sheets es por
+    *minuto*, asi que reintentar a los 2, 4 y 8 segundos cae dentro de la
+    misma ventana saturada y falla igual: sumaba 14 segundos para terminar
+    con el mismo error. Con esperas de 5, 15 y 30 se cruza el minuto.
+    """
     for intento in range(1, INTENTOS + 1):
         try:
             return operacion()
         except AlmacenError:
             raise
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             if intento == INTENTOS or not _es_transitorio(e):
                 raise
-            time.sleep(ESPERA_BASE ** intento)
+            if _codigo_de(e) == 429:
+                time.sleep(ESPERA_CUOTA[min(intento, len(ESPERA_CUOTA)) - 1])
+            else:
+                time.sleep(ESPERA_BASE ** intento)
 
 
 # ------------------------------------------------------------------ config
@@ -221,8 +241,43 @@ def hay_sheet():
     return credencial_google_utilizable(cfg)[0]
 
 
+# La planilla abierta, cacheada por proceso.
+#
+# **Cada `_abrir()` son dos llamadas a la API de Sheets** —autenticar y
+# `open_by_key`— y `_abrir()` se llamaba de nuevo en cada lectura. Leer tres
+# hojas costaba nueve llamadas en vez de tres. La cuota de Google es de **60
+# lecturas por minuto y por usuario**, y como el usuario es el service
+# account, la app y los scripts la comparten: se llegaba al 429 leyendo
+# apenas veinte hojas.
+#
+# Se guarda con vencimiento en vez de para siempre: un cliente que quedo con
+# la sesion rota se arregla solo a los 10 minutos en vez de quedar pegado
+# hasta que alguien reinicie la app.
+_PLANILLA = {"obj": None, "vence": 0.0}
+_PLANILLA_TTL = 600
+
+
 def _abrir():
     """Abre la planilla. Solo se llama si hay_sheet() dio True."""
+    if _PLANILLA["obj"] is not None and time.monotonic() < _PLANILLA["vence"]:
+        return _PLANILLA["obj"]
+    planilla = _abrir_de_cero()
+    _PLANILLA.update(obj=planilla, vence=time.monotonic() + _PLANILLA_TTL)
+    return planilla
+
+
+def _olvidar_planilla():
+    """
+    Tira la planilla cacheada, para que la proxima llamada reabra.
+
+    Se usa cuando el fallo **no** es un hipo de Google: un 429 no invalida la
+    planilla —hay que esperar, nada mas— pero una credencial revocada o una
+    sesion rota dejarian el objeto cacheado fallando por diez minutos.
+    """
+    _PLANILLA.update(obj=None, vence=0.0)
+
+
+def _abrir_de_cero():
     try:
         import gspread
     except ImportError as e:
@@ -282,6 +337,8 @@ def leer_tokens():
         except AlmacenError:
             raise
         except Exception as e:
+            if not _es_transitorio(e):
+                _olvidar_planilla()
             raise AlmacenError(f"No pude leer los tokens de la Sheet: {e}") from e
 
     if TOKENS_LOCAL.exists():
@@ -304,6 +361,8 @@ def guardar_tokens(datos):
             hoja.append_row(fila)
             return datos
         except Exception as e:
+            if not _es_transitorio(e):
+                _olvidar_planilla()
             raise AlmacenError(f"No pude guardar los tokens en la Sheet: {e}") from e
 
     # Escritura atomica: si se corta a la mitad no perdemos el refresh_token.
@@ -368,6 +427,8 @@ def leer_hoja(titulo, columnas):
             hoja = _hoja(_abrir(), titulo, columnas)
             return _reintentar(hoja.get_all_records)
         except Exception as e:
+            if not _es_transitorio(e):
+                _olvidar_planilla()
             raise AlmacenError(f"No pude leer la hoja '{titulo}': {e}") from e
 
     ruta = _csv_local(titulo)
@@ -391,6 +452,8 @@ def columna_hoja(titulo, columnas, nombre):
             valores = _reintentar(lambda: hoja.col_values(idx))
             return [v for v in valores[1:] if v]
         except Exception as e:
+            if not _es_transitorio(e):
+                _olvidar_planilla()
             raise AlmacenError(f"No pude leer la columna '{nombre}': {e}") from e
     return [str(f.get(nombre, "")) for f in leer_hoja(titulo, columnas)
             if f.get(nombre)]
