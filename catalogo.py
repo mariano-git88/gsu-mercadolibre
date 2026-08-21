@@ -73,6 +73,25 @@ def sku_del_atributo(pub):
     return None
 
 
+def marca_del_atributo(pub):
+    """La marca cargada como atributo BRAND. Cadena vacia si no la tiene."""
+    for a in pub.get("attributes") or []:
+        if a.get("id") == "BRAND" and a.get("value_name"):
+            return str(a["value_name"]).strip()
+    return ""
+
+
+def marcas_del_catalogo(pubs, solo_activas=True):
+    """{marca: cuantas publicaciones}, ordenado de mayor a menor."""
+    from collections import Counter
+    c = Counter(
+        marca_del_atributo(p) or "(sin marca)"
+        for p in pubs
+        if not solo_activas or p.get("status") == "active"
+    )
+    return dict(c.most_common())
+
+
 def bajar_catalogo(ml):
     print("Trayendo IDs de publicaciones...")
     ids = list(ml.scan_items())

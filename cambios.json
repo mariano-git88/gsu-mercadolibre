@@ -1,6 +1,19 @@
 [
   {
     "fecha": "2026-08-21",
+    "hora": "15:40",
+    "titulo": "Activar por regla ahora se puede acotar por marca",
+    "tipo": "nuevo",
+    "puntos": [
+      "En **Promos → Activar por regla** hay un selector de **Marca**. Vacío es todas, como hasta ahora; eligiendo una o varias, la regla se aplica solo a esas.",
+      "Sirve para armar una campaña por marca sin tocar el resto del catálogo: por ejemplo entrar **solo Bulit al 10%** y dejar Suprabond afuera.",
+      "En el catálogo hay **8 marcas**: Bulit (245 publicaciones), Suprabond (171), Bosch (9), Aqualaf (5), Somerset (2), Suprabond Somerset (1), Dremel (1) y 4 sin marca cargada.",
+      "La tabla del plan tiene ahora una **columna Marca**, y se llena aunque no filtres, para poder mirar el reparto antes de decidir.",
+      "**Las publicaciones que no están en el catálogo local no desaparecen en silencio**: salen marcadas como \"(no está en el catálogo)\" y se cuentan aparte. El catálogo es un archivo que se refresca cada tanto y una publicación nueva puede no figurar todavía."
+    ]
+  },
+  {
+    "fecha": "2026-08-21",
     "hora": "13:10",
     "titulo": "Se puede entrar a una campaña con MÁS descuento que el mínimo",
     "tipo": "mejora",

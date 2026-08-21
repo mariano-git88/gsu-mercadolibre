@@ -68,8 +68,8 @@ ELIGE_EL_VENDEDOR = ("SELLER_CAMPAIGN",)
 # cubre el redondeo y no deja pasar nada materialmente por encima.
 TOLERANCIA_TOPE = 1e-4
 
-COLUMNAS = ["item_id", "accion", "motivo", "tipo", "campana_id", "oferta_id",
-            "precio_original", "precio_promo", "descuento",
+COLUMNAS = ["item_id", "marca", "accion", "motivo", "tipo", "campana_id",
+            "oferta_id", "precio_original", "precio_promo", "descuento",
             "precio_sugerido", "descuento_sugerido", "min_precio",
             "max_precio", "stock_min", "stock_max"]
 
@@ -153,7 +153,8 @@ def ofertas(ml, campana_id, tipo, estados=("candidate", "started"),
 def _fila(item, accion, motivo, tipo="", campana="", o=None, precio=None,
           desc=None):
     o = o or {}
-    return {"item_id": item, "accion": accion, "motivo": motivo, "tipo": tipo,
+    return {"item_id": item, "marca": o.get("marca", ""),
+            "accion": accion, "motivo": motivo, "tipo": tipo,
             "campana_id": campana, "oferta_id": o.get("oferta_id", ""),
             "precio_original": o.get("precio_original"),
             "precio_promo": precio, "descuento": desc,
@@ -263,8 +264,47 @@ def _precio_objetivo(o, objetivo):
     return precio, 1 - precio / orig
 
 
+SIN_MARCA = "(sin marca)"
+FUERA_DEL_CATALOGO = "(no está en el catálogo)"
+
+
+def mapa_marcas(ml, pubs=None):
+    """{item_id: marca} desde el catalogo local. La marca es el atributo BRAND."""
+    import catalogo
+    pubs = pubs if pubs is not None else catalogo.cargar_catalogo(ml)
+    return {p["id"]: (catalogo.marca_del_atributo(p) or SIN_MARCA)
+            for p in pubs if p.get("id")}
+
+
+def _filtrar_por_marca(todas, marcas, mapa, callback=None):
+    """
+    Deja solo las ofertas de esas marcas.
+
+    Devuelve (ofertas_filtradas, cuantas_sin_dato). Las que no estan en el
+    catalogo local **no se descartan en silencio**: se cuentan aparte y el
+    caller las reporta. El catalogo es un archivo cacheado y puede estar
+    viejo; una publicacion nueva no figura y filtrar por marca la haria
+    desaparecer sin explicacion.
+    """
+    quedan, sin_dato = {}, 0
+    for item, o in todas.items():
+        m = mapa.get(item)
+        if m is None:
+            sin_dato += 1
+            o["marca"] = FUERA_DEL_CATALOGO
+            continue
+        o["marca"] = m
+        if m in marcas:
+            quedan[item] = o
+    if callback:
+        callback(f"Marca: quedan {len(quedan)} de {len(todas)}"
+                 + (f" ({sin_dato} sin dato de marca)" if sin_dato else ""))
+    return quedan, sin_dato
+
+
 def por_regla(ml, campana_id, tipo, tope_descuento=0.05, piso_descuento=None,
-              solo_candidatas=True, callback=None, descuento_objetivo=None):
+              solo_candidatas=True, callback=None, descuento_objetivo=None,
+              marcas=None, mapa=None):
     """
     Las ofertas de una campaña que cumplen una condicion de descuento.
 
@@ -283,9 +323,23 @@ def por_regla(ml, campana_id, tipo, tope_descuento=0.05, piso_descuento=None,
 
     Ojo: quien entra decide es el **minimo exigido** contra `tope_descuento`.
     El objetivo solo cambia con cuanto se entra, no quien entra.
+
+    `marcas` acota a esas marcas (atributo BRAND del catalogo). `mapa` es
+    {item_id: marca} ya armado, para no releer el catalogo por cada campaña
+    cuando se recorren todas.
     """
     estados = ("candidate",) if solo_candidatas else ("candidate", "started")
     todas = ofertas(ml, campana_id, tipo, estados, callback)
+
+    if marcas or mapa is not None:
+        m = mapa if mapa is not None else mapa_marcas(ml)
+        if marcas:
+            todas, _sin = _filtrar_por_marca(todas, set(marcas), m, callback)
+        else:
+            # Sin filtro igual se completa la columna: sirve para mirar el
+            # plan por marca antes de decidir.
+            for item, o in todas.items():
+                o["marca"] = m.get(item, FUERA_DEL_CATALOGO)
 
     filas = []
     for item, o in todas.items():
@@ -455,7 +509,7 @@ if __name__ == "__main__":
 
 def por_regla_todas(ml, tope_descuento=0.05, piso_descuento=None,
                     excluir_propias=True, callback=None,
-                    descuento_objetivo=None):
+                    descuento_objetivo=None, marcas=None):
     """
     La misma regla aplicada a **todas las campañas de MercadoLibre a la vez**.
 
@@ -477,6 +531,13 @@ def por_regla_todas(ml, tope_descuento=0.05, piso_descuento=None,
     # Una campaña que todavia no arranco no acepta altas.
     df = df[df["estado"].isin(["started", "active"])]
 
+    # El catalogo se lee UNA vez para todas las campañas, no una por campaña.
+    # Se arma siempre: aunque no se filtre, llena la columna de marca.
+    try:
+        mapa = mapa_marcas(ml)
+    except Exception:                                        # noqa: BLE001
+        mapa = None
+
     partes = []
     for _, c in df.iterrows():
         if callback:
@@ -484,7 +545,8 @@ def por_regla_todas(ml, tope_descuento=0.05, piso_descuento=None,
         try:
             p = por_regla(ml, c["id"], c["tipo"], tope_descuento,
                           piso_descuento, callback=None,
-                          descuento_objetivo=descuento_objetivo)
+                          descuento_objetivo=descuento_objetivo,
+                          marcas=marcas, mapa=mapa)
         except MeliError as e:
             partes.append(pd.DataFrame([_fila(
                 "", "saltear", f"no pude leer {c['id']}: {str(e)[:90]}",

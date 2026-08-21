@@ -47,7 +47,7 @@ import tramos
 import tutorial_suprabond
 import ventana
 from catalogo import (CACHE as CACHE_CATALOGO, actualizado_en as catalogo_al,
-                      bajar_catalogo)
+                      bajar_catalogo, marcas_del_catalogo)
 from meli import Meli, MeliError
 
 _ASSETS = Path(__file__).resolve().parent / "_assets"
@@ -2080,6 +2080,18 @@ elif seccion == "PROMOS":
         cid = et[g1.selectbox("Campaña", list(et), key="cid_rg")]
         tope = g2.number_input("Tope de descuento (%)", 1, 60, 5, 1,
                                key="tope_rg")
+        # `pubs` es el catálogo que la app ya tiene cargado y cacheado: no se
+        # vuelve a bajar solo para llenar el selector.
+        _marcas_cat = marcas_del_catalogo(pubs)
+        _mapa_marcas = promos_campanas.mapa_marcas(ml, pubs)
+        sel_marcas = st.multiselect(
+            "Marca", list(_marcas_cat),
+            format_func=lambda m: f"{m} ({_marcas_cat.get(m, 0)})",
+            key="marcas_rg",
+            help="Vacío = todas. Acota la regla a esas marcas, así se puede "
+                 "hacer una campaña por marca sin tocar el resto del "
+                 "catálogo. La marca sale del atributo del catálogo de "
+                 "MercadoLibre.")
         dar_tope = st.checkbox(
             "Entrar con el tope, no con el mínimo", key="tope_full_rg",
             help="Por defecto se entra con el descuento MÍNIMO que pide cada "
@@ -2091,17 +2103,19 @@ elif seccion == "PROMOS":
         if st.button("Ver cuáles cumplen", key="sim_rg"):
             caja = st.status("Leyendo...", expanded=True)
             objetivo = (tope / 100) if dar_tope else None
+            marcas = sel_marcas or None
             try:
                 if cid == TODAS:
                     st.session_state["plan_rg"] = \
                         promos_campanas.por_regla_todas(
                             ml, tope_descuento=tope / 100, callback=caja.write,
-                            descuento_objetivo=objetivo)
+                            descuento_objetivo=objetivo, marcas=marcas)
                 else:
                     st.session_state["plan_rg"] = promos_campanas.por_regla(
                         ml, cid, _tipos.get(cid, "LIGHTNING"),
                         tope_descuento=tope / 100, callback=caja.write,
-                        descuento_objetivo=objetivo)
+                        descuento_objetivo=objetivo, marcas=marcas,
+                        mapa=_mapa_marcas)
                 caja.update(label="Listo", state="complete", expanded=False)
             except Exception as e:
                 caja.update(label="Falló", state="error")
