@@ -199,6 +199,21 @@ except MeliError as e:
     st.caption("Si corrés en tu máquina, alcanza con tener `credentials.txt` "
                "en la carpeta del proyecto (`python autorizar.py` una vez).")
     st.stop()
+except almacen.AlmacenError as e:
+    # Los tokens de MercadoLibre viven en la Google Sheet, así que si Sheets
+    # no contesta la app no arranca. Antes salía como un traceback crudo; es
+    # una falla momentánea y se destraba reintentando.
+    st.error("**No pude leer la planilla, así que la app no puede arrancar.** "
+             "Los accesos a MercadoLibre se guardan ahí.", icon="🔌")
+    st.caption(f"Detalle: {str(e)[:300]}")
+    if st.button("↻ Reintentar"):
+        conectar.clear()
+        st.rerun()
+    st.info(
+        "Suele ser un cuelgue momentáneo de Google: reintentar casi siempre "
+        "alcanza. Si insiste, revisá que la planilla siga compartida como "
+        "Editor con el service account.", icon="💡")
+    st.stop()
 
 if "sello_catalogo" not in st.session_state:
     st.session_state["sello_catalogo"] = 0

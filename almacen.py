@@ -63,12 +63,20 @@ class AlmacenError(RuntimeError):
 # no. Por eso los append-only de aca abajo NO pasan por esto.
 
 CODIGOS_TRANSITORIOS = {429, 500, 502, 503, 504}
-INTENTOS = 4
+INTENTOS = 5
 ESPERA_BASE = 2.0        # espera 2, 4 y 8 segundos: 14 en total
 
 # La cuota de Sheets se cuenta **por minuto**, asi que contra un 429 hay que
 # esperar a que se abra la ventana siguiente, no un par de segundos.
 ESPERA_CUOTA = (5.0, 15.0, 30.0)
+
+# **Timeout corto a proposito.** La conexion inicial con Sheets se cuelga cada
+# tanto —medido el 21/08/2026: la misma llamada tardo 43s una vez y 1,4s la
+# siguiente— y esperar no la destraba: el reintento con un cliente nuevo entra
+# al toque. Con 30s, cuatro intentos tardaban 104 segundos en abrir la
+# planilla, y en Streamlit Cloud se agotaban y la app **no arrancaba**.
+# Cortar en 12s y reintentar mas veces falla mas rapido y acierta mas.
+TIMEOUT_SHEETS = 12
 
 
 def _es_transitorio(e):
@@ -297,10 +305,30 @@ def _abrir_de_cero():
             raise AlmacenError(f"No existe el archivo de credenciales: {ruta}")
         credenciales = json.loads(ruta.read_text(encoding="utf-8"))
 
-    cliente = gspread.service_account_from_dict(credenciales)
+    def _un_intento():
+        # **El cliente se arma de nuevo en cada intento, a proposito.** Lo que
+        # se cuelga es la conexion, no la planilla: reintentar sobre el mismo
+        # cliente se vuelve a colgar, y con uno nuevo entra en un segundo.
+        # Medido el 21/08/2026 abriendo tres veces seguidas: 43s de timeout,
+        # despues 1,0s y 0,9s.
+        cli = gspread.service_account_from_dict(credenciales)
+        try:
+            cli.set_timeout(TIMEOUT_SHEETS)
+        except AttributeError:      # gspread viejo: sin timeout, como antes
+            pass
+        return cli.open_by_key(cfg["spreadsheet_id"])
+
     try:
-        return _reintentar(lambda: cliente.open_by_key(cfg["spreadsheet_id"]))
+        return _reintentar(_un_intento)
     except Exception as e:
+        # Dos causas muy distintas, dos mensajes distintos: mandar a revisar
+        # los permisos cuando el problema es que Google no contesta hace
+        # perder el tiempo buscando donde no hay nada roto.
+        if _es_transitorio(e):
+            raise AlmacenError(
+                f"Google Sheets no respondio en {INTENTOS} intentos. Es una "
+                f"falla momentanea, no de la configuracion: reintentar suele "
+                f"alcanzar. Detalle: {e}") from e
         raise AlmacenError(
             f"No pude abrir la Google Sheet ({cfg['spreadsheet_id']}). "
             f"Verifica el ID y que este compartida como Editor con el "
