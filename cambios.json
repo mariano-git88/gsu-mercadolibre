@@ -1,6 +1,19 @@
 [
   {
     "fecha": "2026-08-21",
+    "hora": "13:10",
+    "titulo": "Se puede entrar a una campaña con MÁS descuento que el mínimo",
+    "tipo": "mejora",
+    "puntos": [
+      "Antes se entraba siempre con el descuento **mínimo** que pide cada campaña, que es lo más barato. Ahora hay una opción para **entrar con el tope**: si la campaña se conforma con 3% y vos estás dispuesto a 10%, va 10%.",
+      "Sirve para pelear posición: MercadoLibre ordena las ofertas de la campaña por descuento, así que entrar con el mínimo te deja abajo de todos.",
+      "**Nunca se pasa de lo que ML permite en cada publicación.** El rango es distinto para cada una; si en alguna el máximo permitido es 8%, entra con 8% y lo dice en el motivo.",
+      "El tope sigue decidiendo **quién entra** (por el mínimo que pide), y ahora además decide **con cuánto entra** si tildás la opción.",
+      "**Arreglado un corte por redondeo:** una publicación que pide exactamente el tope podía calcular 10,00001% y quedar afuera. En la campaña de Argentina eran 227 publicaciones de 1.856 perdidas por ese pelo."
+    ]
+  },
+  {
+    "fecha": "2026-08-21",
     "hora": "11:30",
     "titulo": "La herramienta pedía 10 puntos de descuento de más en las campañas de ML",
     "tipo": "arreglo",

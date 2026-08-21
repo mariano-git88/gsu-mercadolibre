@@ -60,6 +60,14 @@ PAUSA = 0.25
 # Tipos donde el vendedor elige el descuento. En el resto ML fija el precio.
 ELIGE_EL_VENDEDOR = ("SELLER_CAMPAIGN",)
 
+# Margen para comparar contra el tope. El descuento sale de un precio
+# redondeado a centavos, asi que una publicacion que pide exactamente el tope
+# puede calcular 0,1000001 y quedar afuera por polvo de redondeo. Medido en
+# DESCUENTAZOS (MLA, ago-2026): 839 publicaciones piden exactamente 10% y 227
+# caian del lado de afuera por eso. 0,0001 = 0,01 puntos porcentuales, que
+# cubre el redondeo y no deja pasar nada materialmente por encima.
+TOLERANCIA_TOPE = 1e-4
+
 COLUMNAS = ["item_id", "accion", "motivo", "tipo", "campana_id", "oferta_id",
             "precio_original", "precio_promo", "descuento",
             "precio_sugerido", "descuento_sugerido", "min_precio",
@@ -232,8 +240,31 @@ def replicar(ml, origen, tipo_origen, destino, tipo_destino, callback=None,
              .reset_index(drop=True)
 
 
+def _precio_objetivo(o, objetivo):
+    """
+    Precio para entrar con `objetivo` de descuento, recortado al rango de ML.
+
+    Devuelve (precio, descuento_real). Si el minimo que exige la campaña es
+    mayor que el objetivo, manda el minimo: no se puede dar menos descuento
+    que el que pide. Si el objetivo se pasa del maximo permitido, se recorta
+    ahi, que es lo que evita el 400 `ERROR_CREDIBILITY_DISCOUNTED_PRICE`.
+    """
+    orig = o.get("precio_original") or 0
+    if not orig or objetivo is None:
+        return o.get("precio_promo"), o.get("descuento")
+    precio = orig * (1 - objetivo)
+    hi = o.get("max_precio")          # precio mas alto = descuento MINIMO
+    lo = o.get("min_precio")          # precio mas bajo = descuento MAXIMO
+    if hi is not None:
+        precio = min(precio, float(hi))
+    if lo is not None:
+        precio = max(precio, float(lo))
+    precio = round(precio, 2)
+    return precio, 1 - precio / orig
+
+
 def por_regla(ml, campana_id, tipo, tope_descuento=0.05, piso_descuento=None,
-              solo_candidatas=True, callback=None):
+              solo_candidatas=True, callback=None, descuento_objetivo=None):
     """
     Las ofertas de una campaña que cumplen una condicion de descuento.
 
@@ -243,6 +274,15 @@ def por_regla(ml, campana_id, tipo, tope_descuento=0.05, piso_descuento=None,
 
     `piso_descuento` sirve para el caso inverso, cuando lo que se quiere es
     entrar solo si el descuento es grande.
+
+    `descuento_objetivo` **pisa el minimo hacia arriba**: si la campaña se
+    conforma con 3% pero se quiere entrar con 10%, va 10%. Sirve para pelear
+    posicion dentro de la campaña, donde ML ordena por descuento. Nunca baja
+    del minimo que exige ML ni se pasa del maximo permitido — se recorta al
+    rango de cada publicacion, que es distinto para cada una.
+
+    Ojo: quien entra decide es el **minimo exigido** contra `tope_descuento`.
+    El objetivo solo cambia con cuanto se entra, no quien entra.
     """
     estados = ("candidate",) if solo_candidatas else ("candidate", "started")
     todas = ofertas(ml, campana_id, tipo, estados, callback)
@@ -255,23 +295,37 @@ def por_regla(ml, campana_id, tipo, tope_descuento=0.05, piso_descuento=None,
                                "ML no informa precio de promoción", tipo,
                                campana_id, o))
             continue
-        if tope_descuento is not None and d > tope_descuento:
+        if tope_descuento is not None and d > tope_descuento + TOLERANCIA_TOPE:
             filas.append(_fila(item, "no cumple",
                                f"pide {d:.1%} y el tope es "
                                f"{tope_descuento:.1%}", tipo, campana_id, o,
                                o.get("precio_promo"), d))
             continue
-        if piso_descuento is not None and d < piso_descuento:
+        if piso_descuento is not None and d < piso_descuento - TOLERANCIA_TOPE:
             filas.append(_fila(item, "no cumple",
                                f"solo {d:.1%} y el piso es "
                                f"{piso_descuento:.1%}", tipo, campana_id, o,
                                o.get("precio_promo"), d))
             continue
-        filas.append(_fila(item, "alta",
-                           f"pide {d:.1%}, dentro del tope de "
-                           f"{tope_descuento:.1%}" if tope_descuento is not None
-                           else f"pide {d:.1%}",
-                           tipo, campana_id, o, o.get("precio_promo"), d))
+        precio_final, d_final = (
+            _precio_objetivo(o, descuento_objetivo)
+            if descuento_objetivo is not None
+            else (o.get("precio_promo"), d)
+        )
+        if descuento_objetivo is not None and d_final is not None:
+            if d >= descuento_objetivo - TOLERANCIA_TOPE:
+                motivo = f"pide {d:.1%}, que ya es el objetivo"
+            elif d_final < descuento_objetivo - TOLERANCIA_TOPE:
+                motivo = (f"pide {d:.1%} y entramos con {d_final:.1%}: "
+                          f"ML no permite mas en esta publicacion")
+            else:
+                motivo = f"pide {d:.1%} y entramos con {d_final:.1%}"
+        elif tope_descuento is not None:
+            motivo = f"pide {d:.1%}, dentro del tope de {tope_descuento:.1%}"
+        else:
+            motivo = f"pide {d:.1%}"
+        filas.append(_fila(item, "alta", motivo, tipo, campana_id, o,
+                           precio_final, d_final))
 
     df = pd.DataFrame(filas, columns=COLUMNAS)
     return df.sort_values(["accion", "descuento"]).reset_index(drop=True)
@@ -400,7 +454,8 @@ if __name__ == "__main__":
 
 
 def por_regla_todas(ml, tope_descuento=0.05, piso_descuento=None,
-                    excluir_propias=True, callback=None):
+                    excluir_propias=True, callback=None,
+                    descuento_objetivo=None):
     """
     La misma regla aplicada a **todas las campañas de MercadoLibre a la vez**.
 
@@ -428,7 +483,8 @@ def por_regla_todas(ml, tope_descuento=0.05, piso_descuento=None,
             callback(f"{c['nombre'] or c['id']} ({c['nombre_tipo']})...")
         try:
             p = por_regla(ml, c["id"], c["tipo"], tope_descuento,
-                          piso_descuento, callback=None)
+                          piso_descuento, callback=None,
+                          descuento_objetivo=descuento_objetivo)
         except MeliError as e:
             partes.append(pd.DataFrame([_fila(
                 "", "saltear", f"no pude leer {c['id']}: {str(e)[:90]}",

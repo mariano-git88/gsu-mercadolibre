@@ -2080,17 +2080,28 @@ elif seccion == "PROMOS":
         cid = et[g1.selectbox("Campaña", list(et), key="cid_rg")]
         tope = g2.number_input("Tope de descuento (%)", 1, 60, 5, 1,
                                key="tope_rg")
+        dar_tope = st.checkbox(
+            "Entrar con el tope, no con el mínimo", key="tope_full_rg",
+            help="Por defecto se entra con el descuento MÍNIMO que pide cada "
+                 "campaña, que es lo más barato. Tildado, se entra con el "
+                 "tope de arriba: si la campaña se conforma con 3% y el tope "
+                 "es 10%, va 10%. Sirve para pelear posición, porque ML "
+                 "ordena las ofertas por descuento. Nunca se pasa del máximo "
+                 "que ML permite en cada publicación.")
         if st.button("Ver cuáles cumplen", key="sim_rg"):
             caja = st.status("Leyendo...", expanded=True)
+            objetivo = (tope / 100) if dar_tope else None
             try:
                 if cid == TODAS:
                     st.session_state["plan_rg"] = \
                         promos_campanas.por_regla_todas(
-                            ml, tope_descuento=tope / 100, callback=caja.write)
+                            ml, tope_descuento=tope / 100, callback=caja.write,
+                            descuento_objetivo=objetivo)
                 else:
                     st.session_state["plan_rg"] = promos_campanas.por_regla(
                         ml, cid, _tipos.get(cid, "LIGHTNING"),
-                        tope_descuento=tope / 100, callback=caja.write)
+                        tope_descuento=tope / 100, callback=caja.write,
+                        descuento_objetivo=objetivo)
                 caja.update(label="Listo", state="complete", expanded=False)
             except Exception as e:
                 caja.update(label="Falló", state="error")
