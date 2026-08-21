@@ -24,8 +24,11 @@ Box, conviene mirar si esa publicacion tiene un PRICE_MATCHING disponible
 (ver `buybox.py`).
 
 Sobre los precios: en los tipos donde `price` viene en cero (`PRICE_DISCOUNT`,
-`DEAL`) MercadoLibre no fija el precio, te da un rango y una sugerencia — ahi
-se usa `suggested_discounted_price`. En los demas el precio ya viene cerrado.
+`DEAL`) MercadoLibre no fija el precio, te da un **rango** y una sugerencia. Se
+usa el extremo barato del rango — `max_discounted_price`, el descuento minimo
+que acepta la campaña — y **no** `suggested_discounted_price`, que es una
+sugerencia de ML y viene mucho mas abajo. En los demas el precio ya viene
+cerrado.
 
 Lo que queda por unidad se calcula con los cargos reales del SKU (comision y
 envio medidos de las ventas). Es **antes del costo de la mercaderia**: sirve
@@ -84,10 +87,25 @@ def campanas_disponibles(ml):
 
 
 def _precio_promo(p):
-    """El precio con promo. Si ML no lo fija, usa el sugerido."""
+    """
+    El precio con el que entrariamos a la promo.
+
+    Si ML ya lo fijo (`price`), es ese. Si no, es
+    **`max_discounted_price`**: el precio mas alto que la campaña acepta, o
+    sea el descuento MINIMO para entrar.
+
+    NO se usa `suggested_discounted_price`, que es solo una sugerencia y viene
+    bastante mas abajo: en la Cyberfest de UY (ago-2026) el sugerido pedia
+    17,85% donde el minimo real era 7,85%. Usarlo hacia parecer que las promos
+    dejaban menos plata de la que dejan, y descartaba promos sanas por
+    "da negativo". Ver la nota de `promos_campanas`.
+    """
     precio = p.get("price") or 0
     if precio > 0:
         return float(precio)
+    minimo = p.get("max_discounted_price")
+    if minimo:
+        return float(minimo)
     sugerido = p.get("suggested_discounted_price")
     return float(sugerido) if sugerido else None
 

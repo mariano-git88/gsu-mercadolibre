@@ -1,5 +1,19 @@
 [
   {
+    "fecha": "2026-08-21",
+    "hora": "11:30",
+    "titulo": "La herramienta pedía 10 puntos de descuento de más en las campañas de ML",
+    "tipo": "arreglo",
+    "puntos": [
+      "**MercadoLibre da dos números por publicación: el descuento que SUGIERE y el mínimo que EXIGE para entrar.** La herramienta estaba leyendo el sugerido como si fuera el requisito. En la Cyberfest el sugerido pedía 17,85% cuando el mínimo real era 7,85% — exactamente 10 puntos de más, en las 434 publicaciones.",
+      "Por eso con un tope de 10% decía que **ninguna publicación calificaba**, cuando en realidad califican 277. El 7,85% es el número que muestra el panel de MercadoLibre.",
+      "**Qué se destraba hoy, con tope de 10%:** Herramientas y Construcción 196 publicaciones, Cyberfest 277, Fechas dobles 9/9 276, Todo para tu taller 95. Con un descuento promedio de entre 6,7% y 8,1%.",
+      "**Nada de lo que ya está inscripto se tocó ni se pagó de más**: las 235 publicaciones que ya participan entraron al 5% y siguen igual. El daño fue de oportunidad, no de plata regalada.",
+      "Ahora las tablas muestran las dos columnas —lo que la campaña exige y lo que ML sugería— así se ve de una cuánto se ahorra entrando con el mínimo.",
+      "El mismo error estaba en la pantalla que calcula **cuánto deja cada promoción**: mostraba las promos más caras de lo que son y podía descartar como \"da negativo\" alguna que en realidad convenía."
+    ]
+  },
+  {
     "fecha": "2026-08-06",
     "hora": "19:30",
     "titulo": "Lo que pierde plata ya no se publicita",

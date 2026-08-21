@@ -28,6 +28,15 @@ Pasarse contesta 400 `ERROR_CREDIBILITY_DISCOUNTED_PRICE`, que suena a que el
 precio es raro pero significa que quedo fuera del rango. Por eso replicar
 **recorta al rango del destino** en vez de mandar y rezar.
 
+**`suggested_discounted_price` NO es lo que la campaña exige.** Es lo que ML
+sugiere, y viene bastante mas abajo: en la Cyberfest de UY (ago-2026) el
+sugerido daba 17,85% en las 434 ofertas y el minimo real era 7,85% — diez
+puntos clavados de diferencia, y el 7,85% es lo que muestra el panel de ML.
+Lo que la campaña exige sale de **`max_discounted_price`**: el precio mas alto
+que acepta, o sea el descuento mas chico. Tomar el sugerido como exigencia
+decia que ninguna publicacion calificaba con un tope sano, y ademas regalaba
+esos diez puntos en las que si daba de alta.
+
 **`offer_id` es obligatorio salvo en las campañas propias.** Sale del `ref_id`
 del GET. En `SELLER_CAMPAIGN` no existe y el POST va sin el.
 
@@ -52,7 +61,8 @@ PAUSA = 0.25
 ELIGE_EL_VENDEDOR = ("SELLER_CAMPAIGN",)
 
 COLUMNAS = ["item_id", "accion", "motivo", "tipo", "campana_id", "oferta_id",
-            "precio_original", "precio_promo", "descuento", "min_precio",
+            "precio_original", "precio_promo", "descuento",
+            "precio_sugerido", "descuento_sugerido", "min_precio",
             "max_precio", "stock_min", "stock_max"]
 
 
@@ -89,7 +99,21 @@ def ofertas(ml, campana_id, tipo, estados=("candidate", "started"),
                 break
             for x in res:
                 orig = x.get("original_price") or 0
-                precio = x.get("price") or x.get("suggested_discounted_price")
+                # `suggested_discounted_price` es lo que ML SUGIERE, no lo que
+                # exige. Lo que exige es `max_discounted_price`: el precio MÁS
+                # ALTO que la campaña acepta, o sea el descuento MÍNIMO. En la
+                # Cyberfest de UY el sugerido venía 10 puntos por encima del
+                # mínimo en las 434 ofertas (17,85% contra 7,85%), que es lo
+                # que muestra el panel de ML.
+                #
+                # Tomarlo como exigencia hacía dos daños: decía que ninguna
+                # publicación calificaba con un tope razonable, y cuando sí
+                # daba de alta regalaba esos 10 puntos de más.
+                sugerido = x.get("suggested_discounted_price")
+                minimo = x.get("max_discounted_price")
+                # `price` solo viene en las que YA están inscriptas: ahí el
+                # precio ya está acordado y no hay nada que elegir.
+                precio = x.get("price") or minimo or sugerido
                 salida.setdefault(x["id"], {
                     "item_id": x["id"],
                     "estado_promo": x.get("status"),
@@ -98,6 +122,9 @@ def ofertas(ml, campana_id, tipo, estados=("candidate", "started"),
                     "precio_promo": precio,
                     "descuento": (1 - precio / orig) if (orig and precio)
                                  else None,
+                    "precio_sugerido": sugerido,
+                    "descuento_sugerido": (1 - sugerido / orig)
+                                          if (orig and sugerido) else None,
                     "min_precio": x.get("min_discounted_price"),
                     "max_precio": x.get("max_discounted_price"),
                     # Las relampago piden COMPROMETER stock y el POST lo
@@ -122,6 +149,10 @@ def _fila(item, accion, motivo, tipo="", campana="", o=None, precio=None,
             "campana_id": campana, "oferta_id": o.get("oferta_id", ""),
             "precio_original": o.get("precio_original"),
             "precio_promo": precio, "descuento": desc,
+            # Informativo: lo que ML sugería. Sirve para ver cuánto se ahorra
+            # entrando con el mínimo en vez de con la sugerencia.
+            "precio_sugerido": o.get("precio_sugerido"),
+            "descuento_sugerido": o.get("descuento_sugerido"),
             "min_precio": o.get("min_precio"), "max_precio": o.get("max_precio"),
             "stock_min": o.get("stock_min"), "stock_max": o.get("stock_max")}
 
